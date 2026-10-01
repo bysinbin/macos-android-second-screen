@@ -7,6 +7,7 @@ import VirtualDisplayBridge
 @main
 final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
     private var displayID: CGDirectDisplayID = 0
+    private var isMirrorMode: Bool = false
     private var capturer: ScreenCapturer?
     private var encoder: H264Encoder?
     private var server: NetworkServer?
@@ -20,20 +21,37 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
     func run() async {
         printBanner()
         
-        var width: UInt32 = 1640
-        var height: UInt32 = 720
+        var isMirror = false
+        var width: UInt32 = 1920
+        var height: UInt32 = 1080
         var fps: UInt32 = 60
-        var bitrateMbps: Int32 = 6
+        var bitrateMbps: Int32 = 10 // High bitrate (10 Mbps) for razor-sharp text
         var port: UInt16 = ScreenProtocol.defaultPort
         
         let args = CommandLine.arguments
         for i in 1..<args.count {
-            if args[i] == "--portrait" {
+            if args[i] == "--mirror" {
+                isMirror = true
+            } else if args[i] == "--extend" {
+                isMirror = false
+            } else if args[i] == "--portrait" {
                 width = 720
                 height = 1640
             } else if args[i] == "--landscape" {
                 width = 1640
                 height = 720
+            } else if args[i] == "--res", i + 1 < args.count {
+                let resChoice = args[i+1].lowercased()
+                if resChoice == "720p" {
+                    width = 1640
+                    height = 720
+                } else if resChoice == "1080p" {
+                    width = 1920
+                    height = 1080
+                } else if resChoice == "2k" {
+                    width = 2160
+                    height = 1080
+                }
             } else if args[i] == "--width", i + 1 < args.count, let val = UInt32(args[i+1]) {
                 width = val
             } else if args[i] == "--height", i + 1 < args.count, let val = UInt32(args[i+1]) {
@@ -47,28 +65,43 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
             }
         }
         
-        print("⚙️  Configuration:")
-        print("   Resolution: \(width)x\(height) (\(width > height ? "Landscape" : "Portrait"))")
-        print("   Frame Rate: \(fps) FPS")
-        print("   Bitrate   : \(bitrateMbps) Mbps")
-        print("   Port      : \(port)")
+        self.isMirrorMode = isMirror
+        
+        if isMirror {
+            print("🪞  Mod: YANSITMA (Mac Ekranı Doğrudan Aynalanıyor - Mac Çözünürlüğü Korunur)")
+            let mainID = CGMainDisplayID()
+            let mainBounds = CGDisplayBounds(mainID)
+            let aspect = mainBounds.width / mainBounds.height
+            // High resolution capture matching Mac aspect ratio (e.g. 1920x1200 on 16:10 MacBook)
+            width = 1920
+            var calcH = UInt32(round(1920.0 / aspect))
+            if calcH % 2 != 0 { calcH += 1 } // Even height for H.264
+            height = calcH
+            self.displayID = mainID
+            print("   Mac Çözünürlüğü : \(Int(mainBounds.width))x\(Int(mainBounds.height)) (Değişmedi)")
+            print("   Yayın Çözünürlüğü: \(width)x\(height) (Yüksek Çözünürlüklü GPU Ölçekleme)")
+        } else {
+            print("🖥️  Mod: GENİŞLETİLMİŞ MASAÜSTÜ (Bağımsız 2. Ekran)")
+            print("🖥️  Sanal Monitör Oluşturuluyor...")
+            let createdID = VDBridgeCreateDisplay("Android Display", width, height, Double(fps), false)
+            guard createdID != 0 else {
+                print("❌ Sanal ekran oluşturulamadı. Çıkılıyor.")
+                exit(1)
+            }
+            self.displayID = createdID
+            print("✅ Sanal ekran oluşturuldu (Display ID: \(displayID), \(width)x\(height))")
+        }
+        
+        print("⚙️  Ayrıntılar:")
+        print("   Kare Hızı: \(fps) FPS")
+        print("   Bit Hızı : \(bitrateMbps) Mbps (Yüksek Kalite)")
+        print("   Port     : \(port)")
         print("")
         
-        // 1. Create Virtual Display
-        print("🖥️  Creating Virtual Display...")
-        let createdID = VDBridgeCreateDisplay("Android Display", width, height, Double(fps), false)
-        guard createdID != 0 else {
-            print("❌ Failed to create virtual display. Exiting.")
-            exit(1)
-        }
-        self.displayID = createdID
-        print("✅ Virtual display created successfully (Display ID: \(displayID))")
-        
-        // Setup signal handling for clean exit
         setupSignalHandlers()
         
-        // Brief pause to allow CoreGraphics and ScreenCaptureKit to register the new display
-        try? await Task.sleep(nanoseconds: 800_000_000)
+        // Brief pause to allow CoreGraphics and ScreenCaptureKit to register
+        try? await Task.sleep(nanoseconds: 600_000_000)
         
         // 2. Setup Touch Injector
         let touch = TouchInjector(displayID: displayID)
@@ -92,7 +125,7 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
         }
         
         netServer.onClientConnected = { [weak enc] in
-            print("📲 Client connected! Sending immediate keyframe...")
+            print("📲 İstemci bağlandı! Ana kare (Keyframe) gönderiliyor...")
             enc?.requestKeyframe()
         }
         
@@ -103,7 +136,7 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
         do {
             try netServer.start(width: width, height: height, fps: fps)
         } catch {
-            print("❌ Failed to start network server: \(error)")
+            print("❌ Ağ sunucusu başlatılamadı: \(error)")
             cleanup()
             exit(1)
         }
@@ -115,17 +148,15 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
         
         do {
             try await screenCap.start()
-            print("✅ Screen capture engine running at \(fps) FPS.")
+            print("✅ Ekran yakalama motoru \(fps) FPS hızında çalışıyor.")
         } catch {
-            print("❌ Failed to start screen capturer: \(error)")
-            print("💡 Please make sure Screen Recording permission is granted in macOS System Settings.")
+            print("❌ Ekran yakalanamadı: \(error)")
             cleanup()
             exit(1)
         }
         
         printConnectionInfo(port: port)
         
-        // Keep process running
         while true {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
@@ -138,12 +169,12 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
     
     private func setupSignalHandlers() {
         signal(SIGINT) { _ in
-            print("\n🛑 Shutting down server...")
+            print("\n🛑 Sunucu durduruluyor...")
             VDBridgeDestroyDisplay()
             exit(0)
         }
         signal(SIGTERM) { _ in
-            print("\n🛑 Terminating server...")
+            print("\n🛑 Sunucu sonlandırılıyor...")
             VDBridgeDestroyDisplay()
             exit(0)
         }
@@ -152,7 +183,9 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
     private func cleanup() {
         server?.stop()
         encoder?.invalidate()
-        VDBridgeDestroyDisplay()
+        if !isMirrorMode {
+            VDBridgeDestroyDisplay()
+        }
     }
     
     private func printBanner() {
@@ -162,22 +195,20 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
     }
     
     private func printConnectionInfo(port: UInt16) {
-        print("\n✨ Ready for connections!")
+        print("\n✨ Bağlantıya hazır!")
         print("--------------------------------------------------")
         print("🔌 USB (Kablolu) Bağlantı:")
-        print("   Terminalde şunu çalıştırın:")
-        print("   ~/Library/Android/sdk/platform-tools/adb reverse tcp:\(port) tcp:\(port)")
+        print("   adb reverse tcp:\(port) tcp:\(port)")
         print("   Telefon uygulamasında 'USB' butonuna basın.")
         print("")
         print("📶 Wi-Fi (Kablosuz) Bağlantı:")
         let ips = getLocalIPAddresses()
         if ips.isEmpty {
-            print("   IP bulunamadı (Wi-Fi bağlı olduğundan emin olun).")
+            print("   IP bulunamadı.")
         } else {
             for ip in ips {
                 print("   IP: \(ip):\(port)")
             }
-            print("   Telefon otomatik keşifle (Bonjour) veya yukarıdaki IP ile bağlanabilir.")
         }
         print("--------------------------------------------------\n")
     }
@@ -192,7 +223,7 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
             let addrFamily = interface.ifa_addr.pointee.sa_family
             if addrFamily == UInt8(AF_INET) {
                 let name = String(cString: interface.ifa_name)
-                if name.hasPrefix("en") { // Wi-Fi or Ethernet
+                if name.hasPrefix("en") {
                     var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
                     getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
                                 &hostname, socklen_t(hostname.count),

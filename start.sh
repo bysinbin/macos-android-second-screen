@@ -12,9 +12,34 @@ echo "=================================================="
 # 0. Kill any existing instance running in the background
 pkill -9 -f "MacScreenServer" 2>/dev/null || true
 
-# 1. Ensure latest binary is compiled
-echo "📦 MacScreenServer kontrol ediliyor..."
-(cd "$DIR/mac" && swift build)
+# 1. Mode Selection (Yansıtma mı Genişletme mi?)
+MODE_ARG=""
+EXTRA_ARGS=()
+
+for arg in "$@"; do
+    if [[ "$arg" == "--mirror" || "$arg" == "--extend" ]]; then
+        MODE_ARG="$arg"
+    else
+        EXTRA_ARGS+=("$arg")
+    fi
+done
+
+if [ -z "$MODE_ARG" ]; then
+    echo ""
+    echo "Bağlantı Modunu Seçin:"
+    echo "  1) 🖥️  Genişlet (2. Bağımsız Ekran / Extended Desktop) [Varsayılan]"
+    echo "  2) 🪞  Yansıt (Mac Ekranını Yansıt / Mirror - Mac Çözünürlüğü Korunur)"
+    echo ""
+    read -t 8 -p "Seçiminiz [1 veya 2, 8sn sonra otomatik 1]: " USER_CHOICE || USER_CHOICE="1"
+    echo ""
+    if [ "$USER_CHOICE" = "2" ]; then
+        MODE_ARG="--mirror"
+        echo "👉 Mod: Yansıtma (Mirror) seçildi."
+    else
+        MODE_ARG="--extend"
+        echo "👉 Mod: Genişletilmiş 2. Ekran seçildi."
+    fi
+fi
 
 # 2. Check if ADB device is connected
 if [ -f "$ADB" ]; then
@@ -32,7 +57,7 @@ if [ -f "$ADB" ]; then
 fi
 
 echo ""
-echo "🖥️  Mac sanal ekran sunucusu başlatılıyor..."
+echo "🖥️  Mac ekran sunucusu başlatılıyor..."
 echo "   (Durdurmak için Ctrl+C'ye basın)"
 echo "--------------------------------------------------"
-exec "$SERVER_BIN" "$@"
+exec "$SERVER_BIN" "$MODE_ARG" "${EXTRA_ARGS[@]}"
