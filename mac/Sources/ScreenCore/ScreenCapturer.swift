@@ -17,7 +17,6 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
     private var filter: SCContentFilter?
     private var config: SCStreamConfiguration?
     private let captureQueue = DispatchQueue(label: "com.antigravity.screencapture", qos: .userInteractive)
-    private var idleTimer: DispatchSourceTimer?
     private var lastCaptureTimestamp = Date()
     public weak var delegate: ScreenCapturerDelegate?
     
@@ -57,7 +56,6 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
         
         // Capture initial frame immediately without touching the cursor
         triggerImmediateCapture()
-        startIdleHeartbeat()
     }
     
     public func kickstart() {
@@ -85,23 +83,7 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
         }
     }
     
-    private func startIdleHeartbeat() {
-        idleTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: captureQueue)
-        timer.schedule(deadline: .now() + 1.0, repeating: 1.0)
-        timer.setEventHandler { [weak self] in
-            guard let self = self else { return }
-            if Date().timeIntervalSince(self.lastCaptureTimestamp) >= 1.0 {
-                self.triggerImmediateCapture()
-            }
-        }
-        timer.resume()
-        self.idleTimer = timer
-    }
-    
     public func stop() async {
-        idleTimer?.cancel()
-        idleTimer = nil
         
         if let stream = stream {
             do {

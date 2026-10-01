@@ -74,6 +74,8 @@
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="16dp"
         android:background="@drawable/card_bg"
+        android:clickable="false"
+        android:focusable="false"
         android:elevation="12dp"
         android:paddingStart="16dp"
         android:paddingTop="6dp"

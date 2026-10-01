@@ -143,17 +143,6 @@ public final class TouchInjector: @unchecked Sendable {
             // MARK: - Relative Move (0x07) - used for normal cursor move
             case ScreenProtocol.ClientPacketType.mouseRelativeMove.rawValue:
                 let curPos = self.currentCursorPos
-                
-                // If a previous drag was left active, release it now!
-                if self.isLeftMouseDown {
-                    self.isLeftMouseDown = false
-                    CGWarpMouseCursorPosition(curPos)
-                    if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: curPos, mouseButton: .left) {
-                        up.setIntegerValueField(.mouseEventClickState, value: 1)
-                        up.post(tap: .cghidEventTap)
-                    }
-                }
-                
                 let sensitivity: CGFloat = 1.6
                 let newX = max(bounds.minX, min(bounds.maxX, curPos.x + CGFloat(normX) * bounds.width * sensitivity))
                 let newY = max(bounds.minY, min(bounds.maxY, curPos.y + CGFloat(normY) * bounds.height * sensitivity))
@@ -161,8 +150,15 @@ public final class TouchInjector: @unchecked Sendable {
                 self.currentCursorPos = targetPoint
                 
                 CGWarpMouseCursorPosition(targetPoint)
-                if let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: targetPoint, mouseButton: .left) {
-                    moveEvent.post(tap: .cghidEventTap)
+                if self.isLeftMouseDown {
+                    if let dragEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: targetPoint, mouseButton: .left) {
+                        dragEvent.setIntegerValueField(.mouseEventClickState, value: 1)
+                        dragEvent.post(tap: .cghidEventTap)
+                    }
+                } else {
+                    if let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: targetPoint, mouseButton: .left) {
+                        moveEvent.post(tap: .cghidEventTap)
+                    }
                 }
                 
             // MARK: - Tap Click (0x08)

@@ -101,25 +101,35 @@ public final class NetworkServer: @unchecked Sendable {
         connection.start(queue: .global(qos: .userInteractive))
     }
     
-    private func readClientPackets(_ connection: NWConnection) {
-        // Read 13-byte touch packets: [1 byte type][4 bytes float X][4 bytes float Y][4 bytes float deltaY]
-        connection.receive(minimumIncompleteLength: 13, maximumLength: 1024) { [weak self, weak connection] content, _, isComplete, error in
+    private func readClientPackets(_ connection: NWConnection, pendingBuffer: Data = Data()) {
+        // Read available touch packets with accumulator to handle TCP segmentation cleanly
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 2048) { [weak self, weak connection] content, _, isComplete, error in
+            var accumulated = pendingBuffer
             if let data = content {
-                var offset = 0
-                while offset + 13 <= data.count {
-                    let packet = data.subdata(in: offset..<(offset + 13))
-                    let type = packet[0]
-                    let xBits = packet.subdata(in: 1..<5).withUnsafeBytes { $0.load(as: UInt32.self) }
-                    let yBits = packet.subdata(in: 5..<9).withUnsafeBytes { $0.load(as: UInt32.self) }
-                    let dyBits = packet.subdata(in: 9..<13).withUnsafeBytes { $0.load(as: UInt32.self) }
-                    
-                    let normX = Float(bitPattern: UInt32(bigEndian: xBits))
-                    let normY = Float(bitPattern: UInt32(bigEndian: yBits))
-                    let deltaY = Float(bitPattern: UInt32(bigEndian: dyBits))
-                    
-                    self?.onTouchEvent?(type, normX, normY, deltaY)
-                    offset += 13
-                }
+                accumulated.append(data)
+            }
+            
+            var offset = 0
+            while offset + 13 <= accumulated.count {
+                let packet = accumulated.subdata(in: offset..<(offset + 13))
+                let type = packet[0]
+                let xBits = packet.subdata(in: 1..<5).withUnsafeBytes { $0.load(as: UInt32.self) }
+                let yBits = packet.subdata(in: 5..<9).withUnsafeBytes { $0.load(as: UInt32.self) }
+                let dyBits = packet.subdata(in: 9..<13).withUnsafeBytes { $0.load(as: UInt32.self) }
+                
+                let normX = Float(bitPattern: UInt32(bigEndian: xBits))
+                let normY = Float(bitPattern: UInt32(bigEndian: yBits))
+                let deltaY = Float(bitPattern: UInt32(bigEndian: dyBits))
+                
+                self?.onTouchEvent?(type, normX, normY, deltaY)
+                offset += 13
+            }
+            
+            let remainder: Data
+            if offset < accumulated.count {
+                remainder = accumulated.subdata(in: offset..<accumulated.count)
+            } else {
+                remainder = Data()
             }
             
             if isComplete || error != nil {
@@ -127,7 +137,7 @@ public final class NetworkServer: @unchecked Sendable {
                     self?.removeClient(conn)
                 }
             } else if let conn = connection {
-                self?.readClientPackets(conn)
+                self?.readClientPackets(conn, pendingBuffer: remainder)
             }
         }
     }

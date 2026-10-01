@@ -19,6 +19,8 @@ class TouchSender(outputStream: OutputStream) {
     var isTrackpadMode: Boolean = false
     var isDragLockActive: Boolean = false
         private set
+    var isLeftButtonDown: Boolean = false
+        private set
 
     var onDragStateChanged: ((Boolean) -> Unit)? = null
 
@@ -70,9 +72,8 @@ class TouchSender(outputStream: OutputStream) {
         // Two-finger gestures (Scroll & Right click)
         if (event.pointerCount >= 2) {
             cancelLongPress()
-            if (isDragging || isDragLockActive) {
+            if (!isDragLockActive && !isLeftButtonDown && isDragging) {
                 isDragging = false
-                isDragLockActive = false
                 sendPacket(0x0C.toByte(), 0f, 0f, 0f) // Mouse Up
                 onDragStateChanged?.invoke(false)
             }
@@ -123,7 +124,7 @@ class TouchSender(outputStream: OutputStream) {
                     }
 
                     // Schedule long-press to start drag/selection if held still
-                    if (!isDragLockActive) {
+                    if (!isDragLockActive && !isLeftButtonDown) {
                         cancelLongPress()
                         longPressRunnable = Runnable {
                             if (!isTwoFingerGesture && !hasMoved && !isDragging) {
@@ -144,7 +145,7 @@ class TouchSender(outputStream: OutputStream) {
                     if (totalMoveDist > 12f) {
                         cancelLongPress()
                         // Double-tap and drag gesture: start drag immediately upon movement
-                        if (isDragCandidate && !isDragging && !isDragLockActive) {
+                        if (isDragCandidate && !isDragging && !isDragLockActive && !isLeftButtonDown) {
                             isDragging = true
                             isDragCandidate = false
                             view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -160,7 +161,7 @@ class TouchSender(outputStream: OutputStream) {
 
                     if (abs(dx * width) > 1.5f || abs(dy * height) > 1.5f) {
                         hasMoved = true
-                        if (isDragging || isDragLockActive) {
+                        if (isDragging || isDragLockActive || isLeftButtonDown) {
                             // Drag / selection move (left mouse button held down)
                             sendPacket(0x0A.toByte(), dx, dy, 0f)
                         } else {
@@ -176,9 +177,11 @@ class TouchSender(outputStream: OutputStream) {
 
                     val duration = System.currentTimeMillis() - downTimestamp
 
-                    if (isDragging || isDragLockActive) {
+                    if (isDragLockActive || isLeftButtonDown) {
+                        // User is clutching (lifting finger to re-swipe while drag lock or left button is held)
+                        // Do NOT cancel dragging or send mouse up!
+                    } else if (isDragging) {
                         isDragging = false
-                        isDragLockActive = false
                         sendPacket(0x0C.toByte(), 0f, 0f, 0f) // Mouse Up
                         onDragStateChanged?.invoke(false)
                     } else if (isDragCandidate) {
@@ -199,11 +202,12 @@ class TouchSender(outputStream: OutputStream) {
 
                 MotionEvent.ACTION_CANCEL -> {
                     cancelLongPress()
-                    if (isDragging || isDragLockActive) {
-                        isDragging = false
-                        isDragLockActive = false
-                        sendPacket(0x0C.toByte(), 0f, 0f, 0f)
-                        onDragStateChanged?.invoke(false)
+                    if (!isDragLockActive && !isLeftButtonDown) {
+                        if (isDragging) {
+                            isDragging = false
+                            sendPacket(0x0C.toByte(), 0f, 0f, 0f)
+                            onDragStateChanged?.invoke(false)
+                        }
                     }
                 }
             }
@@ -240,21 +244,26 @@ class TouchSender(outputStream: OutputStream) {
             sendPacket(0x0B.toByte(), 0f, 0f, 0f) // Mouse Down
             onDragStateChanged?.invoke(true)
         } else {
-            isDragging = false
-            sendPacket(0x0C.toByte(), 0f, 0f, 0f) // Mouse Up
-            onDragStateChanged?.invoke(false)
+            if (!isLeftButtonDown) {
+                isDragging = false
+                sendPacket(0x0C.toByte(), 0f, 0f, 0f) // Mouse Up
+                onDragStateChanged?.invoke(false)
+            }
         }
     }
 
     fun sendMouseDown() {
+        isLeftButtonDown = true
         isDragging = true
         sendPacket(0x0B.toByte(), 0f, 0f, 0f)
     }
 
     fun sendMouseUp() {
-        isDragging = false
-        isDragLockActive = false
-        sendPacket(0x0C.toByte(), 0f, 0f, 0f)
+        isLeftButtonDown = false
+        if (!isDragLockActive) {
+            isDragging = false
+            sendPacket(0x0C.toByte(), 0f, 0f, 0f)
+        }
     }
 
     fun sendRightClick() {
