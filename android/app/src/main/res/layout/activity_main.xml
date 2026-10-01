@@ -21,6 +21,22 @@
         android:visibility="gone">
 
         <TextView
+            android:id="@+id/btn_floating_drag"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/card_bg"
+            android:elevation="8dp"
+            android:paddingStart="12dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="6dp"
+            android:text="✋ Seçim / Sürükle"
+            android:textColor="@color/accent_cyan"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/btn_floating_mode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -49,6 +65,25 @@
             android:textColor="@color/text_primary"
             android:textSize="12sp" />
     </LinearLayout>
+
+    <!-- Top-Center Drag / Selection Status Indicator Badge -->
+    <TextView
+        android:id="@+id/tv_drag_indicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/card_bg"
+        android:elevation="12dp"
+        android:paddingStart="16dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="6dp"
+        android:text="✋ Seçim Yapılıyor..."
+        android:textColor="@color/accent_green"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
 
     <!-- Overlay HUD Card -->
     <LinearLayout
@@ -215,4 +250,63 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Bottom Trackpad Buttons Bar (Visible in Mouse Mode when HUD is hidden) -->
+    <LinearLayout
+        android:id="@+id/layout_trackpad_buttons"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/card_bg"
+        android:elevation="10dp"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="4dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/btn_trackpad_left"
+            android:layout_width="wrap_content"
+            android:layout_height="38dp"
+            android:background="@drawable/btn_outline"
+            android:minWidth="0dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="🖱️ Sol Tık"
+            android:textAllCaps="false"
+            android:textColor="@color/text_primary"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btn_trackpad_drag_lock"
+            android:layout_width="wrap_content"
+            android:layout_height="38dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/btn_outline"
+            android:minWidth="0dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="✋ Seçim Kilidi"
+            android:textAllCaps="false"
+            android:textColor="@color/accent_cyan"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btn_trackpad_right"
+            android:layout_width="wrap_content"
+            android:layout_height="38dp"
+            android:background="@drawable/btn_outline"
+            android:minWidth="0dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="🖱️ Sağ Tık"
+            android:textAllCaps="false"
+            android:textColor="@color/text_primary"
+            android:textSize="12sp" />
+    </LinearLayout>
+
 </FrameLayout>
+

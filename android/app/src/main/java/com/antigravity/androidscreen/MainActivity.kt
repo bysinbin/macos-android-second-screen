@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -45,7 +46,14 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private lateinit var layoutConnectedActions: LinearLayout
     private lateinit var btnToggleMode: Button
     private lateinit var btnFloatingMode: TextView
+    private lateinit var btnFloatingDrag: TextView
+    private lateinit var tvDragIndicator: TextView
     private lateinit var layoutFloatingPills: LinearLayout
+    private lateinit var layoutTrackpadButtons: LinearLayout
+    private lateinit var btnTrackpadLeft: Button
+    private lateinit var btnTrackpadDragLock: Button
+    private lateinit var btnTrackpadRight: Button
+
     private var isTrackpadMode = false
 
     private var socket: Socket? = null
@@ -84,7 +92,13 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         layoutConnectedActions = findViewById(R.id.layout_connected_actions)
         btnToggleMode = findViewById(R.id.btn_toggle_mode)
         btnFloatingMode = findViewById(R.id.btn_floating_mode)
+        btnFloatingDrag = findViewById(R.id.btn_floating_drag)
+        tvDragIndicator = findViewById(R.id.tv_drag_indicator)
         layoutFloatingPills = findViewById(R.id.layout_floating_pills)
+        layoutTrackpadButtons = findViewById(R.id.layout_trackpad_buttons)
+        btnTrackpadLeft = findViewById(R.id.btn_trackpad_left)
+        btnTrackpadDragLock = findViewById(R.id.btn_trackpad_drag_lock)
+        btnTrackpadRight = findViewById(R.id.btn_trackpad_right)
 
         surfaceView.holder.addCallback(this)
     }
@@ -101,6 +115,50 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         btnToggleMode.setOnClickListener { toggleModeAction() }
         btnFloatingMode.setOnClickListener { toggleModeAction() }
+
+        val toggleDragLockAction = {
+            val sender = touchSender
+            if (sender != null) {
+                val newState = !sender.isDragLockActive
+                sender.setDragLock(newState)
+                updateDragLockUI(newState)
+            } else {
+                Toast.makeText(this, "Önce Mac'e bağlanın", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        btnFloatingDrag.setOnClickListener { toggleDragLockAction() }
+        btnTrackpadDragLock.setOnClickListener { toggleDragLockAction() }
+
+        // Trackpad Left button (Hold to drag / click)
+        btnTrackpadLeft.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    v.setBackgroundResource(R.drawable.btn_cyan)
+                    (v as? Button)?.setTextColor(0xFF000000.toInt())
+                    touchSender?.sendMouseDown()
+                    updateDragIndicator(true)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.setBackgroundResource(R.drawable.btn_outline)
+                    (v as? Button)?.setTextColor(resources.getColor(R.color.text_primary, theme))
+                    touchSender?.sendMouseUp()
+                    if (touchSender?.isDragLockActive != true) {
+                        updateDragIndicator(false)
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+
+        // Trackpad Right click
+        btnTrackpadRight.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            touchSender?.sendRightClick()
+        }
 
         btnUsb.setOnClickListener {
             connectToServer("127.0.0.1", 8888, "USB (Kablolu)")
@@ -155,9 +213,44 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         if (isTrackpadMode) {
             btnToggleMode.text = "🖱️ Mod: Mouse / Touchpad"
             btnFloatingMode.text = "🖱️ Mouse"
+            if (hudContainer.visibility == View.GONE) {
+                btnFloatingDrag.visibility = View.VISIBLE
+                if (isConnected) layoutTrackpadButtons.visibility = View.VISIBLE
+            }
         } else {
             btnToggleMode.text = "📱 Mod: Dokunmatik (Touch)"
             btnFloatingMode.text = "📱 Touch"
+            btnFloatingDrag.visibility = View.GONE
+            layoutTrackpadButtons.visibility = View.GONE
+            tvDragIndicator.visibility = View.GONE
+        }
+    }
+
+    private fun updateDragIndicator(isDragging: Boolean) {
+        if (isDragging && isTrackpadMode) {
+            tvDragIndicator.text = if (touchSender?.isDragLockActive == true) "🔒 Seçim Modu: Sürükleyin" else "✋ Seçim Yapılıyor..."
+            tvDragIndicator.visibility = View.VISIBLE
+        } else {
+            tvDragIndicator.visibility = View.GONE
+        }
+    }
+
+    private fun updateDragLockUI(isActive: Boolean) {
+        if (isActive) {
+            btnFloatingDrag.text = "🔒 Seçim Açık"
+            btnFloatingDrag.setTextColor(0xFF00FFCC.toInt())
+            btnTrackpadDragLock.text = "🔒 Seçim Açık"
+            btnTrackpadDragLock.setBackgroundResource(R.drawable.btn_cyan)
+            btnTrackpadDragLock.setTextColor(0xFF000000.toInt())
+            updateDragIndicator(true)
+            Toast.makeText(this, "🔒 Seçim kilidi açık: Parmağınızı sürükleyerek seçin", Toast.LENGTH_SHORT).show()
+        } else {
+            btnFloatingDrag.text = "✋ Seç / Sürükle"
+            btnFloatingDrag.setTextColor(resources.getColor(R.color.accent_cyan, theme))
+            btnTrackpadDragLock.text = "✋ Seçim Kilidi"
+            btnTrackpadDragLock.setBackgroundResource(R.drawable.btn_outline)
+            btnTrackpadDragLock.setTextColor(resources.getColor(R.color.accent_cyan, theme))
+            updateDragIndicator(false)
         }
     }
 
@@ -206,6 +299,11 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
                 val sender = TouchSender(outputStream)
                 sender.isTrackpadMode = isTrackpadMode
+                sender.onDragStateChanged = { isDragging ->
+                    mainHandler.post {
+                        updateDragIndicator(isDragging)
+                    }
+                }
                 this.touchSender = sender
 
                 val decoder = VideoDecoder(
@@ -268,6 +366,9 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
             tvStatus.text = getString(R.string.status_ready)
             tvStats.visibility = View.GONE
             layoutConnectedActions.visibility = View.GONE
+            layoutTrackpadButtons.visibility = View.GONE
+            btnFloatingDrag.visibility = View.GONE
+            tvDragIndicator.visibility = View.GONE
             showHud()
         }
     }
@@ -275,11 +376,19 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun hideHud() {
         hudContainer.visibility = View.GONE
         layoutFloatingPills.visibility = View.VISIBLE
+        if (isTrackpadMode && isConnected) {
+            btnFloatingDrag.visibility = View.VISIBLE
+            layoutTrackpadButtons.visibility = View.VISIBLE
+        } else {
+            btnFloatingDrag.visibility = View.GONE
+            layoutTrackpadButtons.visibility = View.GONE
+        }
     }
 
     private fun showHud() {
         hudContainer.visibility = View.VISIBLE
         layoutFloatingPills.visibility = View.GONE
+        layoutTrackpadButtons.visibility = View.GONE
         mainHandler.removeCallbacks(autoHideRunnable)
     }
 

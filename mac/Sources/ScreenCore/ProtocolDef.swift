@@ -7,14 +7,17 @@ public struct ScreenProtocol {
     
     // Packet types (Client -> Server)
     public enum ClientPacketType: UInt8 {
-        case touchDown        = 0x01
-        case touchMove        = 0x02
-        case touchUp          = 0x03
-        case touchRightClick  = 0x04
-        case scroll           = 0x05
-        case ping             = 0x06
+        case touchDown         = 0x01
+        case touchMove         = 0x02
+        case touchUp           = 0x03
+        case touchCancel       = 0x04
+        case scroll            = 0x05
+        case ping              = 0x06
         case mouseRelativeMove = 0x07 // Trackpad relative cursor move: dx, dy
-        case mouseClick       = 0x08 // Trackpad single tap click
-        case mouseRightClick  = 0x09 // Trackpad two-finger tap right click
+        case mouseClick        = 0x08 // Trackpad single tap click
+        case mouseRightClick   = 0x09 // Trackpad two-finger tap right click
+        case mouseRelativeDrag = 0x0A // Trackpad drag/select: dx, dy with left button down
+        case mouseDown         = 0x0B // Trackpad left button down (press)
+        case mouseUp           = 0x0C // Trackpad left button up (release)
     }
 }

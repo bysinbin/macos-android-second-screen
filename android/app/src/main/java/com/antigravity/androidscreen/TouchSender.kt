@@ -1,11 +1,15 @@
 package com.antigravity.androidscreen
 
+import android.os.Handler
+import android.os.Looper
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import java.io.DataOutputStream
 import java.io.OutputStream
 import java.util.concurrent.LinkedBlockingQueue
 import kotlin.math.abs
+import kotlin.math.hypot
 
 class TouchSender(outputStream: OutputStream) {
     private val dataOut = DataOutputStream(outputStream)
@@ -13,14 +17,30 @@ class TouchSender(outputStream: OutputStream) {
     @Volatile private var isRunning = true
 
     var isTrackpadMode: Boolean = false
+    var isDragLockActive: Boolean = false
+        private set
+
+    var onDragStateChanged: ((Boolean) -> Unit)? = null
 
     // Trackpad tracking state
     private var lastTouchX = 0f
     private var lastTouchY = 0f
+    private var downTouchX = 0f
+    private var downTouchY = 0f
     private var downTimestamp = 0L
     private var hasMoved = false
+
+    private var isDragging = false
+    private var isDragCandidate = false
+    private var lastTapUpTime = 0L
+    private var lastTapUpX = 0f
+    private var lastTapUpY = 0f
+
     private var lastTwoFingerY = 0f
     private var isTwoFingerGesture = false
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var longPressRunnable: Runnable? = null
 
     private val senderThread = Thread {
         while (isRunning) {
@@ -49,6 +69,13 @@ class TouchSender(outputStream: OutputStream) {
 
         // Two-finger gestures (Scroll & Right click)
         if (event.pointerCount >= 2) {
+            cancelLongPress()
+            if (isDragging && !isDragLockActive) {
+                isDragging = false
+                sendPacket(0x0C.toByte(), 0f, 0f, 0f) // Mouse Up
+                onDragStateChanged?.invoke(false)
+            }
+
             val midY = (event.getY(0) + event.getY(1)) / 2f
             when (event.actionMasked) {
                 MotionEvent.ACTION_POINTER_DOWN -> {
@@ -78,29 +105,104 @@ class TouchSender(outputStream: OutputStream) {
                 MotionEvent.ACTION_DOWN -> {
                     lastTouchX = event.x
                     lastTouchY = event.y
+                    downTouchX = event.x
+                    downTouchY = event.y
                     downTimestamp = System.currentTimeMillis()
                     hasMoved = false
                     isTwoFingerGesture = false
+
+                    val timeSinceLastTap = System.currentTimeMillis() - lastTapUpTime
+                    val distFromLastTap = hypot(event.x - lastTapUpX, event.y - lastTapUpY)
+
+                    // Double-tap candidate: user tapped and touched down again within 300ms
+                    if (timeSinceLastTap < 300 && distFromLastTap < 80f) {
+                        isDragCandidate = true
+                    } else {
+                        isDragCandidate = false
+                    }
+
+                    // Schedule long-press to start drag/selection if held still
+                    if (!isDragLockActive) {
+                        cancelLongPress()
+                        longPressRunnable = Runnable {
+                            if (!isTwoFingerGesture && !hasMoved && !isDragging) {
+                                isDragging = true
+                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                sendPacket(0x0B.toByte(), 0f, 0f, 0f) // Mouse Down
+                                onDragStateChanged?.invoke(true)
+                            }
+                        }
+                        handler.postDelayed(longPressRunnable!!, 320)
+                    }
                 }
+
                 MotionEvent.ACTION_MOVE -> {
                     if (isTwoFingerGesture) return true
+
+                    val totalMoveDist = hypot(event.x - downTouchX, event.y - downTouchY)
+                    if (totalMoveDist > 12f) {
+                        cancelLongPress()
+                        // Double-tap and drag gesture: start drag immediately upon movement
+                        if (isDragCandidate && !isDragging && !isDragLockActive) {
+                            isDragging = true
+                            isDragCandidate = false
+                            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            sendPacket(0x0B.toByte(), 0f, 0f, 0f) // Mouse Down
+                            onDragStateChanged?.invoke(true)
+                        }
+                    }
+
                     val dx = (event.x - lastTouchX) / width
                     val dy = (event.y - lastTouchY) / height
                     lastTouchX = event.x
                     lastTouchY = event.y
 
-                    if (abs(dx * width) > 2f || abs(dy * height) > 2f) {
+                    if (abs(dx * width) > 1.5f || abs(dy * height) > 1.5f) {
                         hasMoved = true
-                        // Relative mouse cursor move
-                        sendPacket(0x07.toByte(), dx, dy, 0f)
+                        if (isDragging || isDragLockActive) {
+                            // Drag / selection move (left mouse button held down)
+                            sendPacket(0x0A.toByte(), dx, dy, 0f)
+                        } else {
+                            // Normal cursor relative move
+                            sendPacket(0x07.toByte(), dx, dy, 0f)
+                        }
                     }
                 }
+
                 MotionEvent.ACTION_UP -> {
+                    cancelLongPress()
                     if (isTwoFingerGesture) return true
+
                     val duration = System.currentTimeMillis() - downTimestamp
-                    if (!hasMoved && duration < 300) {
-                        // Quick tap to left click
+
+                    if (isDragging) {
+                        if (!isDragLockActive) {
+                            isDragging = false
+                            sendPacket(0x0C.toByte(), 0f, 0f, 0f) // Mouse Up
+                            onDragStateChanged?.invoke(false)
+                        }
+                    } else if (isDragCandidate) {
+                        // Double tap without moving -> register as click (double-click on Mac)
                         sendPacket(0x08.toByte(), 0f, 0f, 0f)
+                        isDragCandidate = false
+                        lastTapUpTime = 0L
+                    } else {
+                        // Single tap click
+                        if (!hasMoved && duration < 250) {
+                            sendPacket(0x08.toByte(), 0f, 0f, 0f)
+                            lastTapUpTime = System.currentTimeMillis()
+                            lastTapUpX = event.x
+                            lastTapUpY = event.y
+                        }
+                    }
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    cancelLongPress()
+                    if (isDragging && !isDragLockActive) {
+                        isDragging = false
+                        sendPacket(0x0C.toByte(), 0f, 0f, 0f)
+                        onDragStateChanged?.invoke(false)
                     }
                 }
             }
@@ -121,6 +223,37 @@ class TouchSender(outputStream: OutputStream) {
             sendPacket(actionType, normX, normY, 0f)
             return true
         }
+    }
+
+    private fun cancelLongPress() {
+        longPressRunnable?.let {
+            handler.removeCallbacks(it)
+            longPressRunnable = null
+        }
+    }
+
+    fun setDragLock(enabled: Boolean) {
+        isDragLockActive = enabled
+        if (enabled) {
+            sendPacket(0x0B.toByte(), 0f, 0f, 0f) // Mouse Down
+            onDragStateChanged?.invoke(true)
+        } else {
+            isDragging = false
+            sendPacket(0x0C.toByte(), 0f, 0f, 0f) // Mouse Up
+            onDragStateChanged?.invoke(false)
+        }
+    }
+
+    fun sendMouseDown() {
+        sendPacket(0x0B.toByte(), 0f, 0f, 0f)
+    }
+
+    fun sendMouseUp() {
+        sendPacket(0x0C.toByte(), 0f, 0f, 0f)
+    }
+
+    fun sendRightClick() {
+        sendPacket(0x09.toByte(), 0f, 0f, 0f)
     }
 
     private fun sendPacket(actionType: Byte, normX: Float, normY: Float, deltaY: Float) {
@@ -150,6 +283,7 @@ class TouchSender(outputStream: OutputStream) {
 
     fun stop() {
         isRunning = false
+        cancelLongPress()
         senderThread.interrupt()
     }
 }
