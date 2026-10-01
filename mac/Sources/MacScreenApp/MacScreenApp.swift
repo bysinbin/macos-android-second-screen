@@ -31,20 +31,27 @@ final class AppViewModel: ObservableObject {
     @Published var localIP = "127.0.0.1"
     
     @Published var isAccessibilityGranted: Bool = true
+    @Published var isScreenCaptureGranted: Bool = true
     
     private var usbTimer: Timer?
     
     init() {
         checkAccessibility()
+        checkScreenCapture()
         refreshUsbStatus()
         refreshIP()
-        usbTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+        usbTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshUsbStatus()
                 self?.checkAccessibility()
+                self?.checkScreenCapture()
             }
         }
-        startServer()
+        if isScreenCaptureGranted {
+            startServer()
+        } else {
+            statusText = "⚠️ Ekran kaydı izni bekleniyor..."
+        }
     }
     
     func checkAccessibility() {
@@ -60,7 +67,16 @@ final class AppViewModel: ObservableObject {
         }
     }
     
-
+    func checkScreenCapture() {
+        isScreenCaptureGranted = CGPreflightScreenCaptureAccess()
+    }
+    
+    func requestScreenCapturePrompt() {
+        CGRequestScreenCaptureAccess()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
     
     func toggleServer() {
         if isRunning {
@@ -71,6 +87,13 @@ final class AppViewModel: ObservableObject {
     }
     
     func startServer() {
+        checkScreenCapture()
+        guard isScreenCaptureGranted else {
+            statusText = "❌ Hata: Ekran Kaydı İzni Gerekli"
+            requestScreenCapturePrompt()
+            return
+        }
+        
         Task {
             do {
                 statusText = "Başlatılıyor..."
@@ -221,6 +244,30 @@ struct ContentView: View {
             .padding(.top, 10)
             
             Divider()
+            
+            if !model.isScreenCaptureGranted {
+                HStack(spacing: 8) {
+                    Image(systemName: "video.slash.fill")
+                        .foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Ekran Kaydı İzni Gerekli")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                        Text("Görüntü aktarımı için Sistem Ayarları'ndan 'Ekran ve Sistem Sesi Kaydı' iznini açın.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("İzni Aç") {
+                        model.requestScreenCapturePrompt()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .controlSize(.small)
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.12)))
+            }
             
             if !model.isAccessibilityGranted {
                 HStack(spacing: 8) {

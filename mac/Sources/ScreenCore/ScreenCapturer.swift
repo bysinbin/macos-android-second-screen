@@ -14,6 +14,8 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
     private let fps: Int
     
     private var stream: SCStream?
+    private var filter: SCContentFilter?
+    private var config: SCStreamConfiguration?
     private let captureQueue = DispatchQueue(label: "com.antigravity.screencapture", qos: .userInteractive)
     private var idleTimer: DispatchSourceTimer?
     private var lastCaptureTimestamp = Date()
@@ -43,6 +45,9 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
         config.showsCursor = true
         config.capturesAudio = false
         
+        self.filter = filter
+        self.config = config
+        
         let newStream = SCStream(filter: filter, configuration: config, delegate: self)
         try newStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
         try await newStream.startCapture()
@@ -50,21 +55,33 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
         self.lastCaptureTimestamp = Date()
         print("[ScreenCapturer] Screen capture started for display ID \(displayID) (\(width)x\(height) @ \(fps)fps)")
         
-        // Kickstart the display with initial cursor position
-        kickstart()
+        // Capture initial frame immediately without touching the cursor
+        triggerImmediateCapture()
         startIdleHeartbeat()
     }
     
     public func kickstart() {
-        let bounds = CGDisplayBounds(self.displayID)
-        guard bounds.width > 0 && bounds.height > 0 else { return }
-        let cur = CGEvent(source: nil)?.location ?? CGPoint(x: bounds.midX, y: bounds.midY)
-        if bounds.contains(cur) {
-            CGWarpMouseCursorPosition(CGPoint(x: cur.x + 1, y: cur.y))
-            usleep(2000)
-            CGWarpMouseCursorPosition(cur)
-        } else {
-            CGWarpMouseCursorPosition(CGPoint(x: bounds.midX, y: bounds.midY))
+        triggerImmediateCapture()
+    }
+    
+    private func triggerImmediateCapture() {
+        guard let filter = self.filter, let config = self.config else { return }
+        Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                let sample = try await SCScreenshotManager.captureSampleBuffer(contentFilter: filter, configuration: config)
+                guard sample.isValid,
+                      let imageBuffer = sample.imageBuffer,
+                      CFGetTypeID(imageBuffer) == CVPixelBufferGetTypeID() else {
+                    return
+                }
+                self.lastCaptureTimestamp = Date()
+                let pixelBuffer = imageBuffer as CVPixelBuffer
+                let presentationTime = CMSampleBufferGetPresentationTimeStamp(sample)
+                self.delegate?.didCaptureFrame(pixelBuffer, presentationTime: presentationTime)
+            } catch {
+                // Silently ignore if busy or not ready
+            }
         }
     }
     
@@ -75,7 +92,7 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
             if Date().timeIntervalSince(self.lastCaptureTimestamp) >= 1.0 {
-                self.kickstart()
+                self.triggerImmediateCapture()
             }
         }
         timer.resume()
@@ -94,6 +111,8 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
             }
             self.stream = nil
         }
+        self.filter = nil
+        self.config = nil
     }
     
     // MARK: - SCStreamOutput
