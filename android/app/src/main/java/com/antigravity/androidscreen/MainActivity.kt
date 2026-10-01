@@ -183,6 +183,11 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     surface = surfaceView.holder.surface,
                     onStreamReady = { w, h, fps ->
                         mainHandler.post {
+                            if (w > h) {
+                                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                            } else {
+                                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            }
                             tvStatus.text = "🟢 Bağlandı: ${w}x${h} @ ${fps}fps ($modeLabel)"
                             layoutConnectedActions.visibility = View.VISIBLE
                             tvStats.visibility = View.VISIBLE

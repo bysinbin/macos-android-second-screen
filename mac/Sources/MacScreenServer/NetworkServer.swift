@@ -102,15 +102,24 @@ public final class NetworkServer: @unchecked Sendable {
     }
     
     private func readClientPackets(_ connection: NWConnection) {
-        // Read 13 bytes for touch packet: [1 byte type][4 bytes float X][4 bytes float Y][4 bytes float deltaY]
-        connection.receive(minimumIncompleteLength: 13, maximumLength: 13) { [weak self, weak connection] content, _, isComplete, error in
-            if let data = content, data.count == 13 {
-                let type = data[0]
-                let normX = data.subdata(in: 1..<5).withUnsafeBytes { $0.load(as: Float.self) }
-                let normY = data.subdata(in: 5..<9).withUnsafeBytes { $0.load(as: Float.self) }
-                let deltaY = data.subdata(in: 9..<13).withUnsafeBytes { $0.load(as: Float.self) }
-                
-                self?.onTouchEvent?(type, normX, normY, deltaY)
+        // Read 13-byte touch packets: [1 byte type][4 bytes float X][4 bytes float Y][4 bytes float deltaY]
+        connection.receive(minimumIncompleteLength: 13, maximumLength: 1024) { [weak self, weak connection] content, _, isComplete, error in
+            if let data = content {
+                var offset = 0
+                while offset + 13 <= data.count {
+                    let packet = data.subdata(in: offset..<(offset + 13))
+                    let type = packet[0]
+                    let xBits = packet.subdata(in: 1..<5).withUnsafeBytes { $0.load(as: UInt32.self) }
+                    let yBits = packet.subdata(in: 5..<9).withUnsafeBytes { $0.load(as: UInt32.self) }
+                    let dyBits = packet.subdata(in: 9..<13).withUnsafeBytes { $0.load(as: UInt32.self) }
+                    
+                    let normX = Float(bitPattern: UInt32(bigEndian: xBits))
+                    let normY = Float(bitPattern: UInt32(bigEndian: yBits))
+                    let deltaY = Float(bitPattern: UInt32(bigEndian: dyBits))
+                    
+                    self?.onTouchEvent?(type, normX, normY, deltaY)
+                    offset += 13
+                }
             }
             
             if isComplete || error != nil {
