@@ -30,15 +30,32 @@ final class AppViewModel: ObservableObject {
     @Published var isUsbConnected = false
     @Published var localIP = "127.0.0.1"
     
+    @Published var isAccessibilityGranted: Bool = true
+    
     private var usbTimer: Timer?
     
     init() {
+        checkAccessibility()
         refreshUsbStatus()
         refreshIP()
         usbTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshUsbStatus()
+                self?.checkAccessibility()
             }
+        }
+    }
+    
+    func checkAccessibility() {
+        let options = ["AXTrustedCheckOptionPrompt": false] as CFDictionary
+        isAccessibilityGranted = AXIsProcessTrustedWithOptions(options)
+    }
+    
+    func requestAccessibilityPrompt() {
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
         }
     }
     
@@ -203,6 +220,24 @@ struct ContentView: View {
             .padding(.top, 10)
             
             Divider()
+            
+            if !model.isAccessibilityGranted {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Dokunmatik & Tıklama için izin gerekli.")
+                        .font(.caption)
+                    Spacer()
+                    Button("İzin Ver") {
+                        model.requestAccessibilityPrompt()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                    .controlSize(.small)
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
+            }
             
             // Mode Selection
             VStack(alignment: .leading, spacing: 8) {

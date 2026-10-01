@@ -74,6 +74,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         initViews()
         setupListeners()
+        updateModeUI()
     }
 
     private fun initViews() {
@@ -219,7 +220,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
             }
         } else {
             btnToggleMode.text = "📱 Mod: Dokunmatik (Touch)"
-            btnFloatingMode.text = "📱 Touch"
+            btnFloatingMode.text = "📱 Dokunmatik"
             btnFloatingDrag.visibility = View.GONE
             layoutTrackpadButtons.visibility = View.GONE
             tvDragIndicator.visibility = View.GONE

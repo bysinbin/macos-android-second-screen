@@ -6,6 +6,11 @@ public final class TouchInjector: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.antigravity.touchinjector")
     private var isLeftMouseDown: Bool = false
     
+    // Direct touch tracking to avoid micro-jitter canceling clicks
+    private var touchStartPoint: CGPoint = .zero
+    private var isTouchDragging: Bool = false
+    private var isTouchActive: Bool = false
+    
     public init(displayID: CGDirectDisplayID) {
         self.displayID = displayID
     }
@@ -23,41 +28,67 @@ public final class TouchInjector: @unchecked Sendable {
             guard bounds.width > 0 && bounds.height > 0 else { return }
             
             switch type {
-            // Direct Touch: Down, Move, Up
+            // Direct Touch: Down
             case ScreenProtocol.ClientPacketType.touchDown.rawValue:
                 let clampedX = CGFloat(max(0.0, min(1.0, normX)))
                 let clampedY = CGFloat(max(0.0, min(1.0, normY)))
                 let targetPoint = CGPoint(x: bounds.origin.x + clampedX * bounds.width, y: bounds.origin.y + clampedY * bounds.height)
                 
+                self.touchStartPoint = targetPoint
+                self.isTouchDragging = false
+                self.isTouchActive = true
+                self.isLeftMouseDown = true
+                
                 CGWarpMouseCursorPosition(targetPoint)
-                if let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: targetPoint, mouseButton: .left) {
-                    moveEvent.post(tap: .cghidEventTap)
-                }
                 if let downEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: targetPoint, mouseButton: .left) {
                     downEvent.setIntegerValueField(.mouseEventClickState, value: 1)
                     downEvent.post(tap: .cghidEventTap)
                 }
                 
+            // Direct Touch: Move
             case ScreenProtocol.ClientPacketType.touchMove.rawValue:
+                guard self.isTouchActive else { return }
                 let clampedX = CGFloat(max(0.0, min(1.0, normX)))
                 let clampedY = CGFloat(max(0.0, min(1.0, normY)))
                 let targetPoint = CGPoint(x: bounds.origin.x + clampedX * bounds.width, y: bounds.origin.y + clampedY * bounds.height)
                 
-                CGWarpMouseCursorPosition(targetPoint)
-                if let dragEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: targetPoint, mouseButton: .left) {
-                    dragEvent.setIntegerValueField(.mouseEventClickState, value: 1)
-                    dragEvent.post(tap: .cghidEventTap)
+                let dist = hypot(targetPoint.x - self.touchStartPoint.x, targetPoint.y - self.touchStartPoint.y)
+                // Touch slop: only emit leftMouseDragged if movement is intentional (> 8 points)
+                if dist > 8.0 || self.isTouchDragging {
+                    self.isTouchDragging = true
+                    CGWarpMouseCursorPosition(targetPoint)
+                    if let dragEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: targetPoint, mouseButton: .left) {
+                        dragEvent.setIntegerValueField(.mouseEventClickState, value: 1)
+                        dragEvent.post(tap: .cghidEventTap)
+                    }
                 }
                 
+            // Direct Touch: Up
             case ScreenProtocol.ClientPacketType.touchUp.rawValue:
+                guard self.isTouchActive else { return }
+                self.isTouchActive = false
+                self.isLeftMouseDown = false
+                
                 let clampedX = CGFloat(max(0.0, min(1.0, normX)))
                 let clampedY = CGFloat(max(0.0, min(1.0, normY)))
                 let targetPoint = CGPoint(x: bounds.origin.x + clampedX * bounds.width, y: bounds.origin.y + clampedY * bounds.height)
                 
-                CGWarpMouseCursorPosition(targetPoint)
-                if let upEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: targetPoint, mouseButton: .left) {
-                    upEvent.setIntegerValueField(.mouseEventClickState, value: 1)
-                    upEvent.post(tap: .cghidEventTap)
+                if !self.isTouchDragging {
+                    // Tap gesture: Warp to initial touch point and release cleanly with 20ms duration
+                    CGWarpMouseCursorPosition(self.touchStartPoint)
+                    usleep(20000)
+                    if let upEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: self.touchStartPoint, mouseButton: .left) {
+                        upEvent.setIntegerValueField(.mouseEventClickState, value: 1)
+                        upEvent.post(tap: .cghidEventTap)
+                    }
+                } else {
+                    // Drag gesture: Release at current position
+                    CGWarpMouseCursorPosition(targetPoint)
+                    if let upEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: targetPoint, mouseButton: .left) {
+                        upEvent.setIntegerValueField(.mouseEventClickState, value: 1)
+                        upEvent.post(tap: .cghidEventTap)
+                    }
+                    self.isTouchDragging = false
                 }
                 
             // Mouse / Trackpad Mode: Left Mouse Down (Press - starts selection/drag)
@@ -127,6 +158,7 @@ public final class TouchInjector: @unchecked Sendable {
                     down.setIntegerValueField(.mouseEventClickState, value: 1)
                     down.post(tap: .cghidEventTap)
                 }
+                usleep(25000) // 25ms hold duration to guarantee click registration
                 if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: curPos, mouseButton: .left) {
                     up.setIntegerValueField(.mouseEventClickState, value: 1)
                     up.post(tap: .cghidEventTap)
@@ -139,6 +171,7 @@ public final class TouchInjector: @unchecked Sendable {
                     rightDown.setIntegerValueField(.mouseEventClickState, value: 1)
                     rightDown.post(tap: .cghidEventTap)
                 }
+                usleep(25000)
                 if let rightUp = CGEvent(mouseEventSource: nil, mouseType: .rightMouseUp, mouseCursorPosition: curPos, mouseButton: .right) {
                     rightUp.setIntegerValueField(.mouseEventClickState, value: 1)
                     rightUp.post(tap: .cghidEventTap)

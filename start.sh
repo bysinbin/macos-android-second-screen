@@ -3,7 +3,11 @@ set -e
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADB="$HOME/Library/Android/sdk/platform-tools/adb"
-SERVER_BIN="$DIR/mac/.build/debug/MacScreenServer"
+if [ -f "$DIR/mac/.build/release/MacScreenServer" ]; then
+    SERVER_BIN="$DIR/mac/.build/release/MacScreenServer"
+else
+    SERVER_BIN="$DIR/mac/.build/debug/MacScreenServer"
+fi
 
 echo "=================================================="
 echo "    🚀 Android 2. Ekran Başlatıcı (Mac + Android) "
