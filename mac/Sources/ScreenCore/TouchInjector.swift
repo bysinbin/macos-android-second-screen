@@ -89,12 +89,18 @@ public final class TouchInjector: @unchecked Sendable {
                         upEvent.setIntegerValueField(.mouseEventClickState, value: 1)
                         upEvent.post(tap: .cghidEventTap)
                     }
+                    if let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: self.touchStartPoint, mouseButton: .left) {
+                        moveEvent.post(tap: .cghidEventTap)
+                    }
                 } else {
                     // Drag: release at current position with clickState 1
                     CGWarpMouseCursorPosition(targetPoint)
                     if let upEvent = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: targetPoint, mouseButton: .left) {
                         upEvent.setIntegerValueField(.mouseEventClickState, value: 1)
                         upEvent.post(tap: .cghidEventTap)
+                    }
+                    if let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: targetPoint, mouseButton: .left) {
+                        moveEvent.post(tap: .cghidEventTap)
                     }
                 }
                 
@@ -116,6 +122,9 @@ public final class TouchInjector: @unchecked Sendable {
                 if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: curPos, mouseButton: .left) {
                     up.setIntegerValueField(.mouseEventClickState, value: 1)
                     up.post(tap: .cghidEventTap)
+                }
+                if let moveEvent = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: curPos, mouseButton: .left) {
+                    moveEvent.post(tap: .cghidEventTap)
                 }
                 
             // MARK: - Relative Drag (0x0A) - used when dragging / selecting
