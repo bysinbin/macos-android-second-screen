@@ -9,11 +9,12 @@ echo "=================================================="
 echo "    🚀 Android 2. Ekran Başlatıcı (Mac + Android) "
 echo "=================================================="
 
-# 1. Check if server binary exists, build if not
-if [ ! -f "$SERVER_BIN" ]; then
-    echo "📦 MacScreenServer derleniyor..."
-    (cd "$DIR/mac" && swift build)
-fi
+# 0. Kill any existing instance running in the background
+pkill -9 -f "MacScreenServer" 2>/dev/null || true
+
+# 1. Ensure latest binary is compiled
+echo "📦 MacScreenServer kontrol ediliyor..."
+(cd "$DIR/mac" && swift build)
 
 # 2. Check if ADB device is connected
 if [ -f "$ADB" ]; then
