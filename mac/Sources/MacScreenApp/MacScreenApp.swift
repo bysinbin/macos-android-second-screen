@@ -12,6 +12,9 @@ struct MacScreenApp: App {
             ContentView(model: model)
                 .frame(width: 460, height: 520)
                 .fixedSize()
+                .task {
+                    model.onAppear()
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
@@ -34,12 +37,23 @@ final class AppViewModel: ObservableObject {
     @Published var isScreenCaptureGranted: Bool = true
     
     private var usbTimer: Timer?
+    private var hasAppeared = false
     
     init() {
         checkAccessibility()
         checkScreenCapture()
+    }
+    
+    func onAppear() {
+        guard !hasAppeared else { return }
+        hasAppeared = true
+        
+        checkAccessibility()
+        checkScreenCapture()
         refreshUsbStatus()
         refreshIP()
+        
+        usbTimer?.invalidate()
         usbTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshUsbStatus()
@@ -47,10 +61,16 @@ final class AppViewModel: ObservableObject {
                 self?.checkScreenCapture()
             }
         }
-        if isScreenCaptureGranted {
-            startServer()
-        } else {
+        
+        if !isAccessibilityGranted {
+            requestAccessibilityPrompt()
+        }
+        
+        if !isScreenCaptureGranted {
             statusText = "⚠️ Ekran kaydı izni bekleniyor..."
+            requestScreenCapturePrompt()
+        } else {
+            startServer()
         }
     }
     
@@ -61,9 +81,11 @@ final class AppViewModel: ObservableObject {
     
     func requestAccessibilityPrompt() {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
+        isAccessibilityGranted = AXIsProcessTrustedWithOptions(options)
+        if !isAccessibilityGranted {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
+            }
         }
     }
     
@@ -72,7 +94,7 @@ final class AppViewModel: ObservableObject {
     }
     
     func requestScreenCapturePrompt() {
-        CGRequestScreenCaptureAccess()
+        _ = CGRequestScreenCaptureAccess()
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
         }
@@ -97,6 +119,8 @@ final class AppViewModel: ObservableObject {
         Task {
             do {
                 statusText = "Başlatılıyor..."
+                await ScreenEngine.shared.stop()
+                
                 var width: UInt32 = 1920
                 var height: UInt32 = 1080
                 
@@ -172,6 +196,7 @@ final class AppViewModel: ObservableObject {
                 let id = first.components(separatedBy: "\t").first ?? "Cihaz"
                 usbStatus = "🔌 Cihaz Bağlı: \(id)"
                 isUsbConnected = true
+                setupUsbReverse()
             } else {
                 usbStatus = "⚪ USB Cihazı Bekleniyor"
                 isUsbConnected = false

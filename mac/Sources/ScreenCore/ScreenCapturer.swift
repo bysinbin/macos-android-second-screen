@@ -18,9 +18,6 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
     private var config: SCStreamConfiguration?
     private let captureQueue = DispatchQueue(label: "com.antigravity.screencapture", qos: .userInteractive)
     private var lastCaptureTimestamp = Date()
-    private var lastPixelBuffer: CVPixelBuffer?
-    private var frameIndex: Int64 = 0
-    private var keepaliveTimer: DispatchSourceTimer?
     public weak var delegate: ScreenCapturerDelegate?
     
     public init(displayID: CGDirectDisplayID, width: Int, height: Int, fps: Int = 60) {
@@ -59,7 +56,6 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
         
         // Capture initial frame immediately without touching the cursor
         triggerImmediateCapture()
-        startKeepalive()
     }
     
     public func kickstart() {
@@ -79,41 +75,15 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
                 }
                 self.lastCaptureTimestamp = Date()
                 let pixelBuffer = imageBuffer as CVPixelBuffer
-                self.lastPixelBuffer = pixelBuffer
-                let pts = CMTime(value: self.frameIndex, timescale: CMTimeScale(self.fps))
-                self.frameIndex += 1
-                self.delegate?.didCaptureFrame(pixelBuffer, presentationTime: pts)
+                let presentationTime = CMSampleBufferGetPresentationTimeStamp(sample)
+                self.delegate?.didCaptureFrame(pixelBuffer, presentationTime: presentationTime)
             } catch {
                 // Silently ignore if busy or not ready
             }
         }
     }
     
-    private func startKeepalive() {
-        keepaliveTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: captureQueue)
-        let intervalMs = max(10, 1000 / fps)
-        timer.schedule(deadline: .now() + .milliseconds(intervalMs), repeating: .milliseconds(intervalMs))
-        timer.setEventHandler { [weak self] in
-            guard let self = self else { return }
-            let elapsed = Date().timeIntervalSince(self.lastCaptureTimestamp)
-            // If display produced no new frame for >= 1.5 frame intervals, re-inject last buffer
-            if elapsed >= (Double(intervalMs) * 1.4 / 1000.0), let buffer = self.lastPixelBuffer {
-                self.lastCaptureTimestamp = Date()
-                let pts = CMTime(value: self.frameIndex, timescale: CMTimeScale(self.fps))
-                self.frameIndex += 1
-                self.delegate?.didCaptureFrame(buffer, presentationTime: pts)
-            }
-        }
-        timer.resume()
-        self.keepaliveTimer = timer
-    }
-    
     public func stop() async {
-        keepaliveTimer?.cancel()
-        keepaliveTimer = nil
-        lastPixelBuffer = nil
-        
         if let stream = stream {
             do {
                 try await stream.stopCapture()
@@ -137,10 +107,8 @@ public final class ScreenCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @
         
         self.lastCaptureTimestamp = Date()
         let pixelBuffer = imageBuffer as CVPixelBuffer
-        self.lastPixelBuffer = pixelBuffer
-        let pts = CMTime(value: frameIndex, timescale: CMTimeScale(fps))
-        frameIndex += 1
-        delegate?.didCaptureFrame(pixelBuffer, presentationTime: pts)
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        delegate?.didCaptureFrame(pixelBuffer, presentationTime: presentationTime)
     }
     
     // MARK: - SCStreamDelegate
