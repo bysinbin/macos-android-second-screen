@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Swift / Mac build artifacts
+mac/.build/
+mac/.swiftpm/
+mac/*.xcodeproj
+mac/*.xcworkspace
+
+# Android / Gradle build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/app/*.iml
+
+# Release output
+dist/
+release-assets/

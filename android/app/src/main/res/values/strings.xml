@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Mac 2nd Screen</string>
+    <string name="usb_connect">🔌 USB İle Bağlan</string>
+    <string name="wifi_auto">📶 Wi-Fi Otomatik Bul</string>
+    <string name="connect">Bağlan</string>
+    <string name="disconnect">Bağlantıyı Kes</string>
+    <string name="rotate">🔄 Döndür</string>
+    <string name="status_ready">Bağlantı bekleniyor...</string>
+</resources>
