@@ -36,7 +36,7 @@ final class AppViewModel: ObservableObject {
     // Touch Bar Support
     @Published var isTouchBarRunning = false
     @Published var touchBarStatusText = "Hazır"
-    @Published var isTouchBarAvailable = VDBridgeTouchBarIsAvailable()
+    @Published var isTouchBarAvailable = true
     
     @Published var isAccessibilityGranted: Bool = true
     @Published var isScreenCaptureGranted: Bool = true

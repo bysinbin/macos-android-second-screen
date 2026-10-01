@@ -42,6 +42,12 @@ void VDBridgeTouchBarStop(void);
 /// normX, normY: normalized coordinates (0.0 to 1.0)
 void VDBridgeTouchBarPostEvent(uint8_t eventType, float normX, float normY);
 
+/// Posts a system media key (sound up/down, mute, play/pause, brightness, etc.)
+void VDBridgePostSystemMediaKey(int keyType);
+
+/// Posts a keyboard virtual key press or release (Esc = 0x35, F1..F12, etc.)
+void VDBridgePostVirtualKey(uint16_t keyCode, BOOL isDown);
+
 #ifdef __cplusplus
 }
 #endif
