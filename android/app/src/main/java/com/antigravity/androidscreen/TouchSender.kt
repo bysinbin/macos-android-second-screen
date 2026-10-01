@@ -70,8 +70,9 @@ class TouchSender(outputStream: OutputStream) {
         // Two-finger gestures (Scroll & Right click)
         if (event.pointerCount >= 2) {
             cancelLongPress()
-            if (isDragging && !isDragLockActive) {
+            if (isDragging || isDragLockActive) {
                 isDragging = false
+                isDragLockActive = false
                 sendPacket(0x0C.toByte(), 0f, 0f, 0f) // Mouse Up
                 onDragStateChanged?.invoke(false)
             }
@@ -175,12 +176,11 @@ class TouchSender(outputStream: OutputStream) {
 
                     val duration = System.currentTimeMillis() - downTimestamp
 
-                    if (isDragging) {
-                        if (!isDragLockActive) {
-                            isDragging = false
-                            sendPacket(0x0C.toByte(), 0f, 0f, 0f) // Mouse Up
-                            onDragStateChanged?.invoke(false)
-                        }
+                    if (isDragging || isDragLockActive) {
+                        isDragging = false
+                        isDragLockActive = false
+                        sendPacket(0x0C.toByte(), 0f, 0f, 0f) // Mouse Up
+                        onDragStateChanged?.invoke(false)
                     } else if (isDragCandidate) {
                         // Double tap without moving -> register as click (double-click on Mac)
                         sendPacket(0x08.toByte(), 0f, 0f, 0f)
@@ -199,8 +199,9 @@ class TouchSender(outputStream: OutputStream) {
 
                 MotionEvent.ACTION_CANCEL -> {
                     cancelLongPress()
-                    if (isDragging && !isDragLockActive) {
+                    if (isDragging || isDragLockActive) {
                         isDragging = false
+                        isDragLockActive = false
                         sendPacket(0x0C.toByte(), 0f, 0f, 0f)
                         onDragStateChanged?.invoke(false)
                     }
@@ -235,6 +236,7 @@ class TouchSender(outputStream: OutputStream) {
     fun setDragLock(enabled: Boolean) {
         isDragLockActive = enabled
         if (enabled) {
+            isDragging = true
             sendPacket(0x0B.toByte(), 0f, 0f, 0f) // Mouse Down
             onDragStateChanged?.invoke(true)
         } else {
@@ -245,10 +247,13 @@ class TouchSender(outputStream: OutputStream) {
     }
 
     fun sendMouseDown() {
+        isDragging = true
         sendPacket(0x0B.toByte(), 0f, 0f, 0f)
     }
 
     fun sendMouseUp() {
+        isDragging = false
+        isDragLockActive = false
         sendPacket(0x0C.toByte(), 0f, 0f, 0f)
     }
 
@@ -278,7 +283,25 @@ class TouchSender(outputStream: OutputStream) {
         packet[11] = (dyBits ushr 8).toByte()
         packet[12] = dyBits.toByte()
 
-        eventQueue.offer(packet)
+        val isMovePacket = actionType == 0x02.toByte() ||
+                           actionType == 0x07.toByte() ||
+                           actionType == 0x0A.toByte() ||
+                           actionType == 0x05.toByte()
+
+        if (isMovePacket) {
+            // Keep queue fresh for move packets
+            if (eventQueue.size > 40) {
+                eventQueue.poll()
+            }
+            eventQueue.offer(packet)
+        } else {
+            // Critical button up/down/click packets must NEVER be dropped
+            try {
+                eventQueue.put(packet)
+            } catch (e: InterruptedException) {
+                eventQueue.offer(packet)
+            }
+        }
     }
 
     fun stop() {

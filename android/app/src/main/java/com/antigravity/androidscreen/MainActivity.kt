@@ -303,6 +303,9 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 sender.onDragStateChanged = { isDragging ->
                     mainHandler.post {
                         updateDragIndicator(isDragging)
+                        if (!isDragging && touchSender?.isDragLockActive != true) {
+                            updateDragLockUI(false)
+                        }
                     }
                 }
                 this.touchSender = sender
