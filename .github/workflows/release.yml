@@ -10,28 +10,24 @@ permissions:
 
 jobs:
   build-macos:
-    name: Build macOS Server
+    name: Build macOS GUI App & Server
     runs-on: macos-14
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Build MacScreenServer
+      - name: Build Mac Screen.app
         run: |
-          cd mac
-          swift build -c release
-          mkdir -p ../dist
-          cp .build/release/MacScreenServer ../dist/
-          cd ..
-          cp start.sh dist/
-          cd dist
-          zip -q -r "MacScreenServer-macOS-arm64.zip" MacScreenServer start.sh
+          chmod +x build_app.sh
+          ./build_app.sh
+          mkdir -p dist
+          zip -q -r "dist/MacScreen-macOS.zip" "Mac Screen.app"
 
       - name: Upload macOS Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-binary
-          path: dist/MacScreenServer-macOS-arm64.zip
+          name: macos-app
+          path: dist/MacScreen-macOS.zip
 
   build-android:
     name: Build Android APK
@@ -73,7 +69,7 @@ jobs:
       - name: Download macOS Artifact
         uses: actions/download-artifact@v4
         with:
-          name: macos-binary
+          name: macos-app
           path: release-assets
 
       - name: Download Android Artifact
@@ -90,7 +86,7 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            release-assets/MacScreenServer-macOS-arm64.zip
+            release-assets/MacScreen-macOS.zip
             release-assets/MacScreen-Android.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

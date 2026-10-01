@@ -3,6 +3,7 @@ import CoreGraphics
 import CoreMedia
 import CoreVideo
 import VirtualDisplayBridge
+import ScreenCore
 
 @main
 final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {

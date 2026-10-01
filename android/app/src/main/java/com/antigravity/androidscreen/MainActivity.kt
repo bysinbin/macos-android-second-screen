@@ -43,6 +43,10 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private lateinit var btnHideHud: Button
     private lateinit var btnDisconnect: Button
     private lateinit var layoutConnectedActions: LinearLayout
+    private lateinit var btnToggleMode: Button
+    private lateinit var btnFloatingMode: TextView
+    private lateinit var layoutFloatingPills: LinearLayout
+    private var isTrackpadMode = false
 
     private var socket: Socket? = null
     private var videoDecoder: VideoDecoder? = null
@@ -78,12 +82,26 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         btnHideHud = findViewById(R.id.btn_hide_hud)
         btnDisconnect = findViewById(R.id.btn_disconnect)
         layoutConnectedActions = findViewById(R.id.layout_connected_actions)
+        btnToggleMode = findViewById(R.id.btn_toggle_mode)
+        btnFloatingMode = findViewById(R.id.btn_floating_mode)
+        layoutFloatingPills = findViewById(R.id.layout_floating_pills)
 
         surfaceView.holder.addCallback(this)
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupListeners() {
+        val toggleModeAction = {
+            isTrackpadMode = !isTrackpadMode
+            touchSender?.isTrackpadMode = isTrackpadMode
+            updateModeUI()
+            val msg = if (isTrackpadMode) "🖱️ Mouse (Trackpad) Moduna geçildi" else "📱 Dokunmatik (Touch) Moduna geçildi"
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+
+        btnToggleMode.setOnClickListener { toggleModeAction() }
+        btnFloatingMode.setOnClickListener { toggleModeAction() }
+
         btnUsb.setOnClickListener {
             connectToServer("127.0.0.1", 8888, "USB (Kablolu)")
         }
@@ -133,6 +151,16 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
     }
 
+    private fun updateModeUI() {
+        if (isTrackpadMode) {
+            btnToggleMode.text = "🖱️ Mod: Mouse / Touchpad"
+            btnFloatingMode.text = "🖱️ Mouse"
+        } else {
+            btnToggleMode.text = "📱 Mod: Dokunmatik (Touch)"
+            btnFloatingMode.text = "📱 Touch"
+        }
+    }
+
     private fun startWifiAutoDiscovery() {
         tvStatus.text = "🔍 Mac aranıyor (Wi-Fi Bonjour)..."
         btnWifiDiscover.isEnabled = false
@@ -177,6 +205,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 val outputStream = newSocket.getOutputStream()
 
                 val sender = TouchSender(outputStream)
+                sender.isTrackpadMode = isTrackpadMode
                 this.touchSender = sender
 
                 val decoder = VideoDecoder(
@@ -245,12 +274,12 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private fun hideHud() {
         hudContainer.visibility = View.GONE
-        btnShowHud.visibility = View.VISIBLE
+        layoutFloatingPills.visibility = View.VISIBLE
     }
 
     private fun showHud() {
         hudContainer.visibility = View.VISIBLE
-        btnShowHud.visibility = View.GONE
+        layoutFloatingPills.visibility = View.GONE
         mainHandler.removeCallbacks(autoHideRunnable)
     }
 

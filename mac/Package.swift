@@ -4,10 +4,11 @@ import PackageDescription
 let package = Package(
     name: "MacScreenServer",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     products: [
-        .executable(name: "MacScreenServer", targets: ["MacScreenServer"])
+        .executable(name: "MacScreenServer", targets: ["MacScreenServer"]),
+        .executable(name: "MacScreenApp", targets: ["MacScreenApp"])
     ],
     targets: [
         .target(
@@ -15,10 +16,10 @@ let package = Package(
             path: "Sources/VirtualDisplayBridge",
             publicHeadersPath: "include"
         ),
-        .executableTarget(
-            name: "MacScreenServer",
+        .target(
+            name: "ScreenCore",
             dependencies: ["VirtualDisplayBridge"],
-            path: "Sources/MacScreenServer",
+            path: "Sources/ScreenCore",
             linkerSettings: [
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("ScreenCaptureKit"),
@@ -28,5 +29,19 @@ let package = Package(
                 .linkedFramework("Network")
             ]
         ),
+        .executableTarget(
+            name: "MacScreenServer",
+            dependencies: ["ScreenCore", "VirtualDisplayBridge"],
+            path: "Sources/MacScreenServer"
+        ),
+        .executableTarget(
+            name: "MacScreenApp",
+            dependencies: ["ScreenCore", "VirtualDisplayBridge"],
+            path: "Sources/MacScreenApp",
+            linkerSettings: [
+                .linkedFramework("SwiftUI"),
+                .linkedFramework("AppKit")
+            ]
+        )
     ]
 )

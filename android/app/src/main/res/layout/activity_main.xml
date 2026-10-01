@@ -10,23 +10,45 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Top floating HUD toggle pill (Visible when HUD is hidden) -->
-    <TextView
-        android:id="@+id/btn_show_hud"
+    <!-- Top floating pills (Visible when HUD is hidden) -->
+    <LinearLayout
+        android:id="@+id/layout_floating_pills"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
         android:layout_margin="16dp"
-        android:background="@drawable/card_bg"
-        android:elevation="8dp"
-        android:paddingStart="12dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="6dp"
-        android:text="⚙️ Menü"
-        android:textColor="@color/accent_cyan"
-        android:textSize="12sp"
-        android:visibility="gone" />
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/btn_floating_mode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/card_bg"
+            android:elevation="8dp"
+            android:paddingStart="12dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="6dp"
+            android:text="📱 Touch"
+            android:textColor="@color/accent_cyan"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/btn_show_hud"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:elevation="8dp"
+            android:paddingStart="12dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="6dp"
+            android:text="⚙️ Menü"
+            android:textColor="@color/text_primary"
+            android:textSize="12sp" />
+    </LinearLayout>
 
     <!-- Overlay HUD Card -->
     <LinearLayout
@@ -85,11 +107,23 @@
             android:textSize="12sp"
             android:visibility="gone" />
 
+        <!-- Mouse / Touch Mode Selector Button -->
+        <Button
+            android:id="@+id/btn_toggle_mode"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/btn_outline"
+            android:text="📱 Mod: Dokunmatik (Touch)"
+            android:textAllCaps="false"
+            android:textColor="@color/accent_cyan"
+            android:textSize="13sp" />
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginTop="14dp"
+            android:layout_marginBottom="14dp"
             android:background="@color/border_subtle" />
 
         <!-- USB Quick Connect Button -->
