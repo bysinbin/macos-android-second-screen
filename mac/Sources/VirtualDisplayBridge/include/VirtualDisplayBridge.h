@@ -23,6 +23,25 @@ void VDBridgeDestroyDisplay(void);
 /// Returns the current active virtual display ID, or 0 if none.
 CGDirectDisplayID VDBridgeGetActiveDisplayID(void);
 
+// MARK: - Touch Bar Bridge
+
+/// Checks if private DFR Touch Bar symbols are available on this macOS system.
+BOOL VDBridgeTouchBarIsAvailable(void);
+
+/// Returns the native Touch Bar screen size in points.
+CGSize VDBridgeTouchBarGetSize(void);
+
+/// Starts capturing the macOS Touch Bar stream.
+BOOL VDBridgeTouchBarStart(void (^handler)(IOSurfaceRef surface));
+
+/// Stops capturing the Touch Bar stream.
+void VDBridgeTouchBarStop(void);
+
+/// Posts a touch event to the macOS Touch Bar.
+/// eventType: 1 = down, 2 = move/drag, 3 = up
+/// normX, normY: normalized coordinates (0.0 to 1.0)
+void VDBridgeTouchBarPostEvent(uint8_t eventType, float normX, float normY);
+
 #ifdef __cplusplus
 }
 #endif

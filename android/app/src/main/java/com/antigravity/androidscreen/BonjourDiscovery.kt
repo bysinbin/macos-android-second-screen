@@ -10,12 +10,11 @@ class BonjourDiscovery(
     private val onServerFound: (host: String, port: Int) -> Unit
 ) {
     private val TAG = "BonjourDiscovery"
-    private val SERVICE_TYPE = "_androidscreen._tcp."
     private var nsdManager: NsdManager? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var isDiscovering = false
 
-    fun startDiscovery() {
+    fun startDiscovery(serviceType: String = "_androidscreen._tcp.") {
         if (isDiscovering) return
         nsdManager = context.getSystemService(Context.NSD_SERVICE) as? NsdManager
 
@@ -41,7 +40,8 @@ class BonjourDiscovery(
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
                 Log.i(TAG, "Service found: ${serviceInfo?.serviceName}")
-                if (serviceInfo?.serviceType?.contains("_androidscreen") == true) {
+                val queryPrefix = serviceType.trimEnd('.').split('.').firstOrNull() ?: "_android"
+                if (serviceInfo?.serviceType?.contains(queryPrefix) == true || serviceInfo?.serviceName?.contains("Mac") == true) {
                     nsdManager?.resolveService(serviceInfo, object : NsdManager.ResolveListener {
                         override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
                             Log.e(TAG, "Resolve failed: $errorCode")
@@ -65,7 +65,7 @@ class BonjourDiscovery(
         }
 
         try {
-            nsdManager?.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+            nsdManager?.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start discovery", e)
         }

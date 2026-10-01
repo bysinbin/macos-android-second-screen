@@ -31,11 +31,16 @@ import java.net.Socket
 class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private val TAG = "MainActivity"
 
+    enum class AppMode { SCREEN, TOUCHBAR }
+    private var currentAppMode = AppMode.SCREEN
+
     private lateinit var surfaceView: SurfaceView
     private lateinit var hudContainer: LinearLayout
     private lateinit var btnShowHud: TextView
     private lateinit var tvStatus: TextView
     private lateinit var tvStats: TextView
+    private lateinit var btnModeScreen: Button
+    private lateinit var btnModeTouchBar: Button
     private lateinit var btnUsb: Button
     private lateinit var btnWifiDiscover: Button
     private lateinit var etManualIp: EditText
@@ -83,6 +88,8 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         btnShowHud = findViewById(R.id.btn_show_hud)
         tvStatus = findViewById(R.id.tv_status)
         tvStats = findViewById(R.id.tv_stats)
+        btnModeScreen = findViewById(R.id.btn_mode_screen)
+        btnModeTouchBar = findViewById(R.id.btn_mode_touchbar)
         btnUsb = findViewById(R.id.btn_usb)
         btnWifiDiscover = findViewById(R.id.btn_wifi_discover)
         etManualIp = findViewById(R.id.et_manual_ip)
@@ -106,16 +113,32 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupListeners() {
+        btnModeScreen.setOnClickListener {
+            switchAppMode(AppMode.SCREEN)
+        }
+
+        btnModeTouchBar.setOnClickListener {
+            switchAppMode(AppMode.TOUCHBAR)
+        }
+
         val toggleModeAction = {
-            isTrackpadMode = !isTrackpadMode
-            touchSender?.isTrackpadMode = isTrackpadMode
-            updateModeUI()
-            val msg = if (isTrackpadMode) "🖱️ Mouse (Trackpad) Moduna geçildi" else "📱 Dokunmatik (Touch) Moduna geçildi"
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            if (currentAppMode == AppMode.SCREEN) {
+                isTrackpadMode = !isTrackpadMode
+                touchSender?.isTrackpadMode = isTrackpadMode
+                updateModeUI()
+                val msg = if (isTrackpadMode) "🖱️ Mouse (Trackpad) Moduna geçildi" else "📱 Dokunmatik (Touch) Moduna geçildi"
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            }
         }
 
         btnToggleMode.setOnClickListener { toggleModeAction() }
-        btnFloatingMode.setOnClickListener { toggleModeAction() }
+        btnFloatingMode.setOnClickListener {
+            if (currentAppMode == AppMode.SCREEN) {
+                toggleModeAction()
+            } else {
+                showHud()
+            }
+        }
 
         val toggleDragLockAction = {
             val sender = touchSender
@@ -162,7 +185,9 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
 
         btnUsb.setOnClickListener {
-            connectToServer("127.0.0.1", 8888, "USB (Kablolu)")
+            val port = if (currentAppMode == AppMode.TOUCHBAR) 8889 else 8888
+            val label = if (currentAppMode == AppMode.TOUCHBAR) "USB Touch Bar" else "USB (Kablolu)"
+            connectToServer("127.0.0.1", port, label)
         }
 
         btnWifiDiscover.setOnClickListener {
@@ -177,8 +202,10 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
             }
             val parts = input.split(":")
             val host = parts[0]
-            val port = if (parts.size > 1) parts[1].toIntOrNull() ?: 8888 else 8888
-            connectToServer(host, port, "Wi-Fi ($host)")
+            val defaultPort = if (currentAppMode == AppMode.TOUCHBAR) 8889 else 8888
+            val port = if (parts.size > 1) parts[1].toIntOrNull() ?: defaultPort else defaultPort
+            val label = if (currentAppMode == AppMode.TOUCHBAR) "Wi-Fi Touch Bar ($host)" else "Wi-Fi ($host)"
+            connectToServer(host, port, label)
         }
 
         btnRotate.setOnClickListener {
@@ -203,6 +230,9 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
         surfaceView.setOnTouchListener { v, event ->
             if (isConnected) {
+                if (currentAppMode == AppMode.TOUCHBAR && event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                }
                 touchSender?.handleTouchEvent(v, event) ?: false
             } else {
                 false
@@ -210,7 +240,60 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
     }
 
+    private fun switchAppMode(mode: AppMode) {
+        if (currentAppMode == mode) return
+        val wasConnected = isConnected
+        if (wasConnected) {
+            disconnect()
+        }
+        currentAppMode = mode
+
+        if (mode == AppMode.SCREEN) {
+            btnModeScreen.setBackgroundResource(R.drawable.btn_cyan)
+            btnModeScreen.setTextColor(0xFF000000.toInt())
+            btnModeTouchBar.setBackgroundResource(R.drawable.btn_outline)
+            btnModeTouchBar.setTextColor(resources.getColor(R.color.accent_cyan, theme))
+
+            btnToggleMode.visibility = View.VISIBLE
+            btnUsb.text = getString(R.string.usb_connect)
+            tvStatus.text = "Hazır - 2. Ekran Modu (Port 8888)"
+        } else {
+            btnModeTouchBar.setBackgroundResource(R.drawable.btn_cyan)
+            btnModeTouchBar.setTextColor(0xFF000000.toInt())
+            btnModeScreen.setBackgroundResource(R.drawable.btn_outline)
+            btnModeScreen.setTextColor(resources.getColor(R.color.accent_cyan, theme))
+
+            btnToggleMode.visibility = View.GONE
+            isTrackpadMode = false
+            touchSender?.isTrackpadMode = false
+            layoutTrackpadButtons.visibility = View.GONE
+            btnFloatingDrag.visibility = View.GONE
+            btnUsb.text = "🪄 USB Touch Bar Bağlan (Port 8889)"
+            tvStatus.text = "Hazır - Apple Touch Bar Modu (Port 8889)"
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+        updateModeUI()
+
+        if (wasConnected) {
+            val port = if (mode == AppMode.TOUCHBAR) 8889 else 8888
+            val label = if (mode == AppMode.TOUCHBAR) "USB Touch Bar" else "USB (Kablolu)"
+            mainHandler.postDelayed({
+                connectToServer("127.0.0.1", port, label)
+            }, 300)
+        }
+    }
+
     private fun updateModeUI() {
+        if (currentAppMode == AppMode.TOUCHBAR) {
+            btnToggleMode.visibility = View.GONE
+            btnFloatingMode.text = "🪄 Touch Bar"
+            btnFloatingDrag.visibility = View.GONE
+            layoutTrackpadButtons.visibility = View.GONE
+            tvDragIndicator.visibility = View.GONE
+            return
+        }
+
+        btnToggleMode.visibility = View.VISIBLE
         if (isTrackpadMode) {
             btnToggleMode.text = "🖱️ Mod: Mouse / Touchpad"
             btnFloatingMode.text = "🖱️ Mouse"
@@ -228,7 +311,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun updateDragIndicator(isDragging: Boolean) {
-        if (isDragging && isTrackpadMode) {
+        if (isDragging && isTrackpadMode && currentAppMode == AppMode.SCREEN) {
             tvDragIndicator.text = if (touchSender?.isDragLockActive == true) "🔒 Seçim Modu: Sürükleyin" else "✋ Seçim Yapılıyor..."
             tvDragIndicator.visibility = View.VISIBLE
         } else {
@@ -256,7 +339,10 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun startWifiAutoDiscovery() {
-        tvStatus.text = "🔍 Mac aranıyor (Wi-Fi Bonjour)..."
+        val isTB = currentAppMode == AppMode.TOUCHBAR
+        val serviceType = if (isTB) "_androidtouchbar._tcp." else "_androidscreen._tcp."
+        val modeName = if (isTB) "Touch Bar" else "Ekran"
+        tvStatus.text = "🔍 Mac $modeName aranıyor (Wi-Fi)..."
         btnWifiDiscover.isEnabled = false
 
         bonjourDiscovery?.stopDiscovery()
@@ -264,11 +350,11 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
             mainHandler.post {
                 bonjourDiscovery?.stopDiscovery()
                 btnWifiDiscover.isEnabled = true
-                tvStatus.text = "Mac bulundu: $host:$port. Bağlanılıyor..."
-                connectToServer(host, port, "Wi-Fi (Otomatik)")
+                tvStatus.text = "Mac ($modeName) bulundu: $host:$port. Bağlanılıyor..."
+                connectToServer(host, port, "Wi-Fi $modeName")
             }
         }
-        bonjourDiscovery?.startDiscovery()
+        bonjourDiscovery?.startDiscovery(serviceType)
 
         // 10 second timeout for discovery
         mainHandler.postDelayed({
@@ -299,7 +385,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 val outputStream = newSocket.getOutputStream()
 
                 val sender = TouchSender(outputStream)
-                sender.isTrackpadMode = isTrackpadMode
+                sender.isTrackpadMode = if (currentAppMode == AppMode.TOUCHBAR) false else isTrackpadMode
                 sender.onDragStateChanged = { isDragging ->
                     mainHandler.post {
                         updateDragIndicator(isDragging)
@@ -314,12 +400,13 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     surface = surfaceView.holder.surface,
                     onStreamReady = { w, h, fps ->
                         mainHandler.post {
-                            if (w > h) {
+                            if (currentAppMode == AppMode.TOUCHBAR || w > h) {
                                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                             } else {
                                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                             }
-                            tvStatus.text = "🟢 Bağlandı: ${w}x${h} @ ${fps}fps ($modeLabel)"
+                            val modeTitle = if (currentAppMode == AppMode.TOUCHBAR) "🪄 Touch Bar" else "🟢 Ekran"
+                            tvStatus.text = "$modeTitle: ${w}x${h} @ ${fps}fps ($modeLabel)"
                             layoutConnectedActions.visibility = View.VISIBLE
                             tvStats.visibility = View.VISIBLE
                             scheduleAutoHideHud()
@@ -380,7 +467,11 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun hideHud() {
         hudContainer.visibility = View.GONE
         layoutFloatingPills.visibility = View.VISIBLE
-        if (isTrackpadMode && isConnected) {
+        if (currentAppMode == AppMode.TOUCHBAR) {
+            btnFloatingDrag.visibility = View.GONE
+            layoutTrackpadButtons.visibility = View.GONE
+            btnFloatingMode.text = "🪄 Touch Bar"
+        } else if (isTrackpadMode && isConnected) {
             btnFloatingDrag.visibility = View.VISIBLE
             layoutTrackpadButtons.visibility = View.VISIBLE
         } else {
@@ -418,7 +509,9 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         if (!isConnected) {
             mainHandler.postDelayed({
                 if (!isConnected && surfaceReady) {
-                    connectToServer("127.0.0.1", 8888, "USB (Otomatik)")
+                    val port = if (currentAppMode == AppMode.TOUCHBAR) 8889 else 8888
+                    val label = if (currentAppMode == AppMode.TOUCHBAR) "USB Touch Bar (Otomatik)" else "USB (Otomatik)"
+                    connectToServer("127.0.0.1", port, label)
                 }
             }, 600)
         }

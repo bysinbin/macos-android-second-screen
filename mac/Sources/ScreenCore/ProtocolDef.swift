@@ -2,7 +2,9 @@ import Foundation
 
 public struct ScreenProtocol {
     public static let defaultPort: UInt16 = 8888
+    public static let touchBarPort: UInt16 = 8889
     public static let bonjourServiceType = "_androidscreen._tcp"
+    public static let bonjourTouchBarType = "_androidtouchbar._tcp"
     public static let magicBytes: [UInt8] = [0x41, 0x4E, 0x44, 0x52] // "ANDR"
     
     // Packet types (Client -> Server)

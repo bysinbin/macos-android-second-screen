@@ -3,6 +3,8 @@ import Network
 
 public final class NetworkServer: @unchecked Sendable {
     private let port: NWEndpoint.Port
+    private let serviceType: String
+    private let serviceName: String
     private var listener: NWListener?
     private var clients: [NWConnection] = []
     private let lock = NSLock()
@@ -10,8 +12,10 @@ public final class NetworkServer: @unchecked Sendable {
     public var onClientConnected: (@Sendable () -> Void)?
     public var onTouchEvent: (@Sendable (UInt8, Float, Float, Float) -> Void)?
     
-    public init(port: UInt16 = ScreenProtocol.defaultPort) {
+    public init(port: UInt16 = ScreenProtocol.defaultPort, serviceType: String = ScreenProtocol.bonjourServiceType, serviceName: String = "MacScreenServer") {
         self.port = NWEndpoint.Port(rawValue: port)!
+        self.serviceType = serviceType
+        self.serviceName = serviceName
     }
     
     public func start(width: UInt32, height: UInt32, fps: UInt32) throws {
@@ -19,12 +23,13 @@ public final class NetworkServer: @unchecked Sendable {
         params.allowLocalEndpointReuse = true
         
         let newListener = try NWListener(using: params, on: port)
-        newListener.service = NWListener.Service(name: "MacScreenServer", type: ScreenProtocol.bonjourServiceType)
+        newListener.service = NWListener.Service(name: serviceName, type: serviceType)
         
-        newListener.stateUpdateHandler = { state in
+        newListener.stateUpdateHandler = { [weak self] state in
+            guard let self = self else { return }
             switch state {
             case .ready:
-                print("[NetworkServer] Listening on port \(self.port.rawValue) (Bonjour: \(ScreenProtocol.bonjourServiceType))")
+                print("[NetworkServer] Listening on port \(self.port.rawValue) (Bonjour: \(self.serviceType))")
             case .failed(let error):
                 print("[NetworkServer] Listener failed: \(error)")
             case .cancelled:

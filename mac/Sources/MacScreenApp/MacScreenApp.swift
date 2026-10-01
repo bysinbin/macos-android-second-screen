@@ -10,7 +10,7 @@ struct MacScreenApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
-                .frame(width: 460, height: 520)
+                .frame(width: 460, height: 600)
                 .fixedSize()
                 .task {
                     model.onAppear()
@@ -32,6 +32,11 @@ final class AppViewModel: ObservableObject {
     @Published var usbStatus = "Kontrol ediliyor..."
     @Published var isUsbConnected = false
     @Published var localIP = "127.0.0.1"
+    
+    // Touch Bar Support
+    @Published var isTouchBarRunning = false
+    @Published var touchBarStatusText = "Hazır"
+    @Published var isTouchBarAvailable = VDBridgeTouchBarIsAvailable()
     
     @Published var isAccessibilityGranted: Bool = true
     @Published var isScreenCaptureGranted: Bool = true
@@ -71,6 +76,10 @@ final class AppViewModel: ObservableObject {
             requestScreenCapturePrompt()
         } else {
             startServer()
+        }
+        
+        if isTouchBarAvailable {
+            startTouchBar()
         }
     }
     
@@ -163,12 +172,43 @@ final class AppViewModel: ObservableObject {
         }
     }
     
+    func toggleTouchBar() {
+        if isTouchBarRunning {
+            stopTouchBar()
+        } else {
+            startTouchBar()
+        }
+    }
+    
+    func startTouchBar() {
+        do {
+            try TouchBarEngine.shared.start(port: ScreenProtocol.touchBarPort)
+            isTouchBarRunning = true
+            touchBarStatusText = "🪄 Touch Bar Yayında (Port 8889)"
+            setupUsbReverse()
+        } catch {
+            touchBarStatusText = "❌ \(error.localizedDescription)"
+            isTouchBarRunning = false
+        }
+    }
+    
+    func stopTouchBar() {
+        TouchBarEngine.shared.stop()
+        isTouchBarRunning = false
+        touchBarStatusText = "Durduruldu"
+    }
+    
     func setupUsbReverse() {
         let adbPath = "\(NSHomeDirectory())/Library/Android/sdk/platform-tools/adb"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: adbPath)
-        process.arguments = ["reverse", "tcp:8888", "tcp:8888"]
-        try? process.run()
+        let p1 = Process()
+        p1.executableURL = URL(fileURLWithPath: adbPath)
+        p1.arguments = ["reverse", "tcp:8888", "tcp:8888"]
+        try? p1.run()
+        
+        let p2 = Process()
+        p2.executableURL = URL(fileURLWithPath: adbPath)
+        p2.arguments = ["reverse", "tcp:8889", "tcp:8889"]
+        try? p2.run()
     }
     
     func refreshUsbStatus() {
@@ -368,6 +408,38 @@ struct ContentView: View {
             }
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
+            
+            // Touch Bar Card
+            if model.isTouchBarAvailable {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "hand.tap.fill")
+                            .foregroundStyle(.purple)
+                        Text("Apple Touch Bar Yayını")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                        
+                        Circle()
+                            .fill(model.isTouchBarRunning ? Color.green : Color.gray)
+                            .frame(width: 8, height: 8)
+                        
+                        Spacer()
+                        
+                        Button(model.isTouchBarRunning ? "Durdur" : "Başlat") {
+                            model.toggleTouchBar()
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(model.isTouchBarRunning ? .red : .purple)
+                        .controlSize(.small)
+                    }
+                    
+                    Text("Telefonunuzu MacBook Touch Bar'ı olarak kullanın (Port 8889). Safari sekmeleri, medya denetimleri, emoji, ses, parlaklık ve Esc tuşu canlı aktarılır.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.purple.opacity(0.08)))
+            }
             
             Spacer()
             

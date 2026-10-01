@@ -1,5 +1,8 @@
 #import "VirtualDisplayBridge.h"
+#import <Cocoa/Cocoa.h>
 #import <unistd.h>
+#import <IOSurface/IOSurface.h>
+#import <dlfcn.h>
 
 // Private CoreGraphics interfaces for Virtual Display
 @interface CGVirtualDisplayDescriptor : NSObject
@@ -126,3 +129,156 @@ void VDBridgeDestroyDisplay(void) {
 CGDirectDisplayID VDBridgeGetActiveDisplayID(void) {
     return sActiveDisplayID;
 }
+
+// MARK: - Touch Bar Bridge
+
+typedef void (*DFRSetStatusFunc)(int);
+typedef int (*DFRGetStatusFunc)(void);
+typedef void (*DFRPostEventFunc)(NSEventType, CGPoint);
+typedef CGDisplayStreamRef (*SLSDFRDisplayStreamCreateFunc)(int, dispatch_queue_t, CGDisplayStreamFrameAvailableHandler);
+typedef CGError (*CGDisplayStreamStartFunc)(CGDisplayStreamRef);
+typedef CGError (*CGDisplayStreamStopFunc)(CGDisplayStreamRef);
+typedef CGSize (*DFRGetScreenSizeFunc)(void);
+
+static void *sDFRHandle = NULL;
+static void *sSkyLightHandle = NULL;
+static void *sCoreGraphicsHandle = NULL;
+
+static DFRSetStatusFunc sDFRSetStatus = NULL;
+static DFRGetStatusFunc sDFRGetStatus = NULL;
+static DFRPostEventFunc sDFRPostEvent = NULL;
+static DFRGetScreenSizeFunc sDFRGetScreenSize = NULL;
+static SLSDFRDisplayStreamCreateFunc sSLSDFRDisplayStreamCreate = NULL;
+static CGDisplayStreamStartFunc sCGDisplayStreamStart = NULL;
+static CGDisplayStreamStopFunc sCGDisplayStreamStop = NULL;
+
+static CGDisplayStreamRef sTouchBarStream = NULL;
+static int sInitialDFRStatus = 0;
+static uint32_t sLastTBSurfaceWidth = 2008;
+static uint32_t sLastTBSurfaceHeight = 60;
+static dispatch_queue_t sTouchBarQueue = NULL;
+
+static void InitTouchBarSymbols(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        sDFRHandle = dlopen("/System/Library/PrivateFrameworks/DFRFoundation.framework/DFRFoundation", RTLD_LAZY);
+        sSkyLightHandle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY);
+        sCoreGraphicsHandle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY);
+
+        if (sDFRHandle) {
+            sDFRSetStatus = (DFRSetStatusFunc)dlsym(sDFRHandle, "DFRSetStatus");
+            sDFRGetStatus = (DFRGetStatusFunc)dlsym(sDFRHandle, "DFRGetStatus");
+            sDFRPostEvent = (DFRPostEventFunc)dlsym(sDFRHandle, "DFRFoundationPostEventWithMouseActivity");
+            sDFRGetScreenSize = (DFRGetScreenSizeFunc)dlsym(sDFRHandle, "DFRGetScreenSize");
+        }
+
+        if (sSkyLightHandle) {
+            sSLSDFRDisplayStreamCreate = (SLSDFRDisplayStreamCreateFunc)dlsym(sSkyLightHandle, "SLSDFRDisplayStreamCreate");
+        }
+
+        if (sCoreGraphicsHandle) {
+            sCGDisplayStreamStart = (CGDisplayStreamStartFunc)dlsym(sCoreGraphicsHandle, "CGDisplayStreamStart");
+            sCGDisplayStreamStop = (CGDisplayStreamStopFunc)dlsym(sCoreGraphicsHandle, "CGDisplayStreamStop");
+        }
+    });
+}
+
+BOOL VDBridgeTouchBarIsAvailable(void) {
+    InitTouchBarSymbols();
+    return (sDFRSetStatus != NULL && sSLSDFRDisplayStreamCreate != NULL && sCGDisplayStreamStart != NULL);
+}
+
+CGSize VDBridgeTouchBarGetSize(void) {
+    InitTouchBarSymbols();
+    if (sDFRGetScreenSize) {
+        return sDFRGetScreenSize();
+    }
+    return CGSizeMake(1004.0, 30.0);
+}
+
+BOOL VDBridgeTouchBarStart(void (^handler)(IOSurfaceRef surface)) {
+    InitTouchBarSymbols();
+    if (!VDBridgeTouchBarIsAvailable()) {
+        NSLog(@"[TouchBarBridge] Error: Required private symbols not available.");
+        return NO;
+    }
+
+    if (sTouchBarStream != NULL) {
+        VDBridgeTouchBarStop();
+    }
+
+    if (!sTouchBarQueue) {
+        sTouchBarQueue = dispatch_queue_create("com.antigravity.touchbar", DISPATCH_QUEUE_SERIAL);
+    }
+
+    if (sDFRGetStatus) {
+        sInitialDFRStatus = sDFRGetStatus();
+    }
+
+    if (sDFRSetStatus) {
+        sDFRSetStatus(2); // Enable DFR display mode
+    }
+
+    sTouchBarStream = sSLSDFRDisplayStreamCreate(0, sTouchBarQueue, ^(CGDisplayStreamFrameStatus status, uint64_t displayTime, IOSurfaceRef frameSurface, CGDisplayStreamUpdateRef updateRef) {
+        if (status == kCGDisplayStreamFrameStatusFrameComplete && frameSurface != NULL) {
+            sLastTBSurfaceWidth = (uint32_t)IOSurfaceGetWidth(frameSurface);
+            sLastTBSurfaceHeight = (uint32_t)IOSurfaceGetHeight(frameSurface);
+            if (handler) {
+                handler(frameSurface);
+            }
+        }
+    });
+
+    if (!sTouchBarStream) {
+        NSLog(@"[TouchBarBridge] Failed to create DFR display stream.");
+        return NO;
+    }
+
+    CGError err = sCGDisplayStreamStart(sTouchBarStream);
+    if (err != kCGErrorSuccess) {
+        NSLog(@"[TouchBarBridge] CGDisplayStreamStart error: %d", err);
+        return NO;
+    }
+
+    NSLog(@"[TouchBarBridge] Touch Bar capture stream started successfully.");
+    return YES;
+}
+
+void VDBridgeTouchBarStop(void) {
+    if (sTouchBarStream) {
+        if (sCGDisplayStreamStop) {
+            sCGDisplayStreamStop(sTouchBarStream);
+        }
+        CFRelease(sTouchBarStream);
+        sTouchBarStream = NULL;
+    }
+
+    if (sDFRSetStatus && sInitialDFRStatus != 0) {
+        sDFRSetStatus(sInitialDFRStatus);
+    }
+    NSLog(@"[TouchBarBridge] Touch Bar capture stopped.");
+}
+
+void VDBridgeTouchBarPostEvent(uint8_t eventType, float normX, float normY) {
+    if (!sDFRPostEvent) return;
+
+    // Convert normalized (0..1) coordinate to DFR points
+    float dfrWidth = (sLastTBSurfaceWidth > 0) ? ((float)sLastTBSurfaceWidth / 2.0f) : 1004.0f;
+    float dfrHeight = (sLastTBSurfaceHeight > 0) ? ((float)sLastTBSurfaceHeight / 2.0f) : 30.0f;
+
+    float x = fmaxf(0.0f, fminf(1.0f, normX)) * dfrWidth;
+    // AppKit coordinates: origin (0,0) is bottom-left, invert Y
+    float y = (1.0f - fmaxf(0.0f, fminf(1.0f, normY))) * dfrHeight;
+
+    NSEventType type = NSEventTypeLeftMouseDown;
+    if (eventType == 1) {
+        type = NSEventTypeLeftMouseDown;
+    } else if (eventType == 2) {
+        type = NSEventTypeLeftMouseDragged;
+    } else if (eventType == 3) {
+        type = NSEventTypeLeftMouseUp;
+    }
+
+    sDFRPostEvent(type, CGPointMake(x, y));
+}
+
