@@ -18,23 +18,24 @@ class VideoDecoder(
     private val TAG = "VideoDecoder"
     @Volatile private var isRunning = false
     private var mediaCodec: MediaCodec? = null
-    private var decodeThread: Thread? = null
+    private var readerThread: Thread? = null
+    private var renderThread: Thread? = null
 
     fun start(inputStream: InputStream) {
         isRunning = true
-        decodeThread = Thread {
+        readerThread = Thread {
             try {
                 runDecodeLoop(inputStream)
             } catch (e: Exception) {
                 if (isRunning) {
-                    Log.e(TAG, "Decode loop error", e)
+                    Log.e(TAG, "Reader thread error", e)
                     onError(e)
                 }
             } finally {
-                release()
+                stop()
             }
         }.apply {
-            name = "VideoDecoderThread"
+            name = "VideoReaderThread"
             priority = Thread.MAX_PRIORITY
             start()
         }
@@ -69,14 +70,13 @@ class VideoDecoder(
         codec.start()
         mediaCodec = codec
 
-        val bufferInfo = MediaCodec.BufferInfo()
-        var frameCount = 0
-        var lastFpsTime = System.currentTimeMillis()
+        // 3. Start dedicated RenderThread to drain output buffers immediately, even when network pauses
+        startRenderThread(codec)
 
+        // 4. Input reading loop (feeds codec as packets arrive from network)
         var frameBuffer = ByteArray(512 * 1024)
 
         while (isRunning) {
-            // Read 4-byte frame length
             val frameLength = dataIn.readInt()
             if (frameLength <= 0 || frameLength > 10 * 1024 * 1024) {
                 Log.w(TAG, "Suspicious frame length: $frameLength")
@@ -87,10 +87,8 @@ class VideoDecoder(
                 frameBuffer = ByteArray(frameLength + 64 * 1024)
             }
 
-            // Read entire frame NAL units
             dataIn.readFully(frameBuffer, 0, frameLength)
 
-            // Feed to MediaCodec
             val inIndex = codec.dequeueInputBuffer(10_000)
             if (inIndex >= 0) {
                 val inputBuf: ByteBuffer? = codec.getInputBuffer(inIndex)
@@ -98,30 +96,46 @@ class VideoDecoder(
                 inputBuf?.put(frameBuffer, 0, frameLength)
                 codec.queueInputBuffer(inIndex, 0, frameLength, System.nanoTime() / 1000, 0)
             }
+        }
+    }
 
-            // Drain output buffers to surface
-            var outIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
-            while (outIndex >= 0) {
-                // Render directly to surface (zero-copy)
-                codec.releaseOutputBuffer(outIndex, true)
-                frameCount++
-                outIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
-            }
+    private fun startRenderThread(codec: MediaCodec) {
+        renderThread = Thread {
+            val bufferInfo = MediaCodec.BufferInfo()
+            var frameCount = 0
+            var lastFpsTime = System.currentTimeMillis()
 
-            // Update FPS counter every second
-            val now = System.currentTimeMillis()
-            if (now - lastFpsTime >= 1000) {
-                val currentFps = (frameCount * 1000f / (now - lastFpsTime)).toInt()
-                onFpsUpdate(currentFps)
-                frameCount = 0
-                lastFpsTime = now
+            try {
+                while (isRunning) {
+                    val outIndex = codec.dequeueOutputBuffer(bufferInfo, 10_000)
+                    if (outIndex >= 0) {
+                        codec.releaseOutputBuffer(outIndex, true)
+                        frameCount++
+                    }
+
+                    val now = System.currentTimeMillis()
+                    if (now - lastFpsTime >= 1000) {
+                        val currentFps = (frameCount * 1000f / (now - lastFpsTime)).toInt()
+                        onFpsUpdate(currentFps)
+                        frameCount = 0
+                        lastFpsTime = now
+                    }
+                }
+            } catch (ignored: Exception) {
+                // Codec stopped or thread interrupted
             }
+        }.apply {
+            name = "VideoRenderThread"
+            priority = Thread.MAX_PRIORITY
+            start()
         }
     }
 
     fun stop() {
+        if (!isRunning) return
         isRunning = false
-        decodeThread?.interrupt()
+        readerThread?.interrupt()
+        renderThread?.interrupt()
         release()
     }
 
