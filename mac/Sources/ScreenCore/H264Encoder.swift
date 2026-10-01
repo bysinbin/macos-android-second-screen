@@ -15,7 +15,14 @@ public final class H264Encoder: @unchecked Sendable {
     private var spsData: Data?
     private var ppsData: Data?
     private var forceNextKeyframe = true
+    private var lastKeyframeData: Data?
     private let lock = NSLock()
+    
+    public var lastKeyframe: Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastKeyframeData
+    }
     
     public init(width: Int32, height: Int32, fps: Int32 = 60, bitrate: Int32 = 6_000_000) {
         self.width = width
@@ -191,6 +198,12 @@ public final class H264Encoder: @unchecked Sendable {
             let lengthBigEndian = UInt32(packetData.count).bigEndian
             withUnsafeBytes(of: lengthBigEndian) { framePacket.append(contentsOf: $0) }
             framePacket.append(packetData)
+            
+            if isKeyframe {
+                lock.lock()
+                lastKeyframeData = framePacket
+                lock.unlock()
+            }
             
             onEncodedFrame?(framePacket)
         }

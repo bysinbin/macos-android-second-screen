@@ -44,6 +44,7 @@ final class AppViewModel: ObservableObject {
                 self?.checkAccessibility()
             }
         }
+        startServer()
     }
     
     func checkAccessibility() {

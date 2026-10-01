@@ -59,12 +59,20 @@ public final class ScreenEngine: @unchecked Sendable, ScreenCapturerDelegate {
         let netServer = NetworkServer(port: port)
         self.server = netServer
         
+        let screenCap = ScreenCapturer(displayID: displayID, width: Int(actualWidth), height: Int(actualHeight), fps: Int(fps))
+        screenCap.delegate = self
+        self.capturer = screenCap
+        
         enc.onEncodedFrame = { [weak netServer] frameData in
             netServer?.broadcastFrame(frameData)
         }
         
-        netServer.onClientConnected = { [weak enc, weak self] in
+        netServer.onClientConnected = { [weak enc, weak screenCap, weak netServer, weak self] in
+            if let cached = enc?.lastKeyframe {
+                netServer?.broadcastFrame(cached)
+            }
             enc?.requestKeyframe()
+            screenCap?.kickstart()
             self?.onClientConnected?()
         }
         
@@ -73,10 +81,6 @@ public final class ScreenEngine: @unchecked Sendable, ScreenCapturerDelegate {
         }
         
         try netServer.start(width: actualWidth, height: actualHeight, fps: fps)
-        
-        let screenCap = ScreenCapturer(displayID: displayID, width: Int(actualWidth), height: Int(actualHeight), fps: Int(fps))
-        screenCap.delegate = self
-        self.capturer = screenCap
         
         try await screenCap.start()
         self.isRunning = true

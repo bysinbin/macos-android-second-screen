@@ -121,13 +121,21 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
         let netServer = NetworkServer(port: port)
         self.server = netServer
         
+        let screenCap = ScreenCapturer(displayID: displayID, width: Int(width), height: Int(height), fps: Int(fps))
+        screenCap.delegate = self
+        self.capturer = screenCap
+        
         enc.onEncodedFrame = { [weak netServer] frameData in
             netServer?.broadcastFrame(frameData)
         }
         
-        netServer.onClientConnected = { [weak enc] in
+        netServer.onClientConnected = { [weak enc, weak screenCap, weak netServer] in
             print("📲 İstemci bağlandı! Ana kare (Keyframe) gönderiliyor...")
+            if let cached = enc?.lastKeyframe {
+                netServer?.broadcastFrame(cached)
+            }
             enc?.requestKeyframe()
+            screenCap?.kickstart()
         }
         
         netServer.onTouchEvent = { [weak touch] type, x, y, dy in
@@ -141,11 +149,6 @@ final class MacScreenServerApp: @unchecked Sendable, ScreenCapturerDelegate {
             cleanup()
             exit(1)
         }
-        
-        // 5. Start Screen Capturer
-        let screenCap = ScreenCapturer(displayID: displayID, width: Int(width), height: Int(height), fps: Int(fps))
-        screenCap.delegate = self
-        self.capturer = screenCap
         
         do {
             try await screenCap.start()
