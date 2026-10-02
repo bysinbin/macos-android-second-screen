@@ -67,3 +67,11 @@ Ekranın sağ üst köşesindeki düğmeden veya üst HUD menüsünden iki mod a
 * **`mac/`**: Swift Package projesi (`ScreenCore`, `MacScreenApp`, `MacScreenServer`, `VirtualDisplayBridge`).
 * **`android/`**: Gradle Kotlin Android uygulaması (`VideoDecoder`, `TouchSender`, `BonjourDiscovery`, `MainActivity`).
 * **`start.sh`**: Terminalden tek tıkla başlatan betik.
+
+---
+
+## 📌 Yapılacaklar (Roadmap)
+
+- [ ] **Touchpad Hız Ayarı**: Android arayüzünde dokunmatik yüzeyin fare hareket hızını ve hassasiyetini (sensitivity slider) ayarlayabilme.
+- [ ] **Windows Versiyonu**: Windows işletim sistemi için sanal monitör (IddCx / Direct3D) sürücüsü ve masaüstü sunucu uygulaması.
+- [ ] **Armoury Crate & ARGB Entegrasyonu**: Windows sürümünde ASUS Armoury Crate (Aura Sync SDK) ile entegre olarak Android ekranının kenarlarına dinamik senkronize ARGB ışıklandırma ekleme.
