@@ -17,6 +17,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -82,6 +83,12 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private lateinit var btnTrackpadLeft: Button
     private lateinit var btnTrackpadDragLock: Button
     private lateinit var btnTrackpadRight: Button
+
+    // Touchpad Speed Control
+    private lateinit var layoutTouchpadSpeed: LinearLayout
+    private lateinit var tvTouchpadSpeedVal: TextView
+    private lateinit var sbTouchpadSpeed: SeekBar
+    private var touchpadSpeed: Float = 1.0f
 
     private var isTrackpadMode = false
 
@@ -164,6 +171,15 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         btnTrackpadDragLock = findViewById(R.id.btn_trackpad_drag_lock)
         btnTrackpadRight = findViewById(R.id.btn_trackpad_right)
 
+        layoutTouchpadSpeed = findViewById(R.id.layout_touchpad_speed)
+        tvTouchpadSpeedVal = findViewById(R.id.tv_touchpad_speed_val)
+        sbTouchpadSpeed = findViewById(R.id.sb_touchpad_speed)
+
+        touchpadSpeed = prefs.getFloat("touchpad_speed", 1.0f)
+        val initialProgress = (touchpadSpeed * 100).toInt().coerceIn(50, 250)
+        sbTouchpadSpeed.progress = initialProgress
+        tvTouchpadSpeedVal.text = "$initialProgress%"
+
         surfaceView.holder.addCallback(this)
         surfaceViewSecondary.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
@@ -235,6 +251,19 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         // Dedicated Touchpad Layout Buttons
         setupTouchpadLayout(includeTouchpadPrimary)
         setupTouchpadLayout(includeTouchpadSecondary)
+
+        sbTouchpadSpeed.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    touchpadSpeed = progress / 100f
+                    tvTouchpadSpeedVal.text = "$progress%"
+                    applyTouchpadSpeed()
+                    prefs.edit().putFloat("touchpad_speed", touchpadSpeed).apply()
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
 
         btnUsb.setOnClickListener {
             connectUsbAuto()
@@ -438,6 +467,11 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
     }
 
+    private fun applyTouchpadSpeed() {
+        touchSender?.pointerSpeed = touchpadSpeed
+        touchSenderSecondary?.pointerSpeed = touchpadSpeed
+    }
+
     private fun connectWithMode(host: String, port: Int? = null, label: String) {
         lastConnectedHost = host
         if (host != "127.0.0.1" && host != "localhost") {
@@ -541,6 +575,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
                 val sender = TouchSender(newSocket.getOutputStream())
                 sender.isTrackpadMode = if (currentAppMode == AppMode.TOUCHBAR) false else isTrackpadMode
+                sender.pointerSpeed = touchpadSpeed
                 sender.onGestureTriggered = { msg -> mainHandler.post { Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show() } }
                 this.touchSender = sender
 
@@ -606,6 +641,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
                 val sender = TouchSender(newSocket.getOutputStream())
                 sender.isTrackpadMode = true
+                sender.pointerSpeed = touchpadSpeed
                 sender.onGestureTriggered = { msg -> mainHandler.post { Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show() } }
                 sender.onConnectionLost = {
                     mainHandler.post {
@@ -665,6 +701,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
                 val sender1 = TouchSender(s1.getOutputStream())
                 sender1.isTrackpadMode = isTrackpadMode
+                sender1.pointerSpeed = touchpadSpeed
                 sender1.onGestureTriggered = { msg -> mainHandler.post { Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show() } }
                 this.touchSender = sender1
 
@@ -735,6 +772,7 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 // 2. Touchpad Sender (Secondary Surface = Relative Trackpad + Clicks + Gestures)
                 val senderPad = TouchSender(s1.getOutputStream())
                 senderPad.isTrackpadMode = true
+                senderPad.pointerSpeed = touchpadSpeed
                 senderPad.onGestureTriggered = { msg -> mainHandler.post { Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show() } }
                 this.touchSenderSecondary = senderPad
 

@@ -21,6 +21,7 @@ class TouchSender(outputStream: OutputStream) {
         private set
     var isLeftButtonDown: Boolean = false
         private set
+    var pointerSpeed: Float = 1.0f
 
     var onDragStateChanged: ((Boolean) -> Unit)? = null
     var onGestureTriggered: ((String) -> Unit)? = null
@@ -252,12 +253,14 @@ class TouchSender(outputStream: OutputStream) {
                         }
                     }
 
-                    val dx = (event.x - lastTouchX) / width
-                    val dy = (event.y - lastTouchY) / height
+                    val rawDx = (event.x - lastTouchX) / width
+                    val rawDy = (event.y - lastTouchY) / height
+                    val dx = rawDx * pointerSpeed
+                    val dy = rawDy * pointerSpeed
                     lastTouchX = event.x
                     lastTouchY = event.y
 
-                    if (abs(dx * width) > 0.8f || abs(dy * height) > 0.8f) {
+                    if (abs(rawDx * width) > 0.8f || abs(rawDy * height) > 0.8f) {
                         if (isDragging || isDragLockActive || isLeftButtonDown) {
                             sendPacket(0x0A.toByte(), dx, dy, 0f)
                         } else {
