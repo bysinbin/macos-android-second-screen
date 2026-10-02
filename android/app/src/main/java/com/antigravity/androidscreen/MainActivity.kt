@@ -411,6 +411,13 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
         containerPrimary.layoutParams = paramPrimary
         containerSecondary.layoutParams = paramSecondary
 
+        if (currentAppMode == AppMode.TOUCHBAR) {
+            val h = (120 * resources.displayMetrics.density).toInt()
+            surfaceView.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, h, android.view.Gravity.CENTER)
+        } else {
+            surfaceView.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        }
+
         // Submode button visibility
         if (currentAppMode == AppMode.SCREEN) {
             btnToggleMode.visibility = View.VISIBLE
@@ -720,12 +727,16 @@ class MainActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 s1.connect(InetSocketAddress(host, touchBarPort), 5000)
                 this.socket = s1
 
-                // Single unified TouchSender on the socket:
-                // handles direct touch for Touch Bar and trackpad gestures for Touchpad!
-                val sender = TouchSender(s1.getOutputStream())
-                sender.onGestureTriggered = { msg -> mainHandler.post { Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show() } }
-                this.touchSender = sender
-                this.touchSenderSecondary = sender
+                // 1. Touch Bar Sender (Primary Surface = Direct Touch on Touch Bar)
+                val senderBar = TouchSender(s1.getOutputStream())
+                senderBar.isTrackpadMode = false
+                this.touchSender = senderBar
+
+                // 2. Touchpad Sender (Secondary Surface = Relative Trackpad + Clicks + Gestures)
+                val senderPad = TouchSender(s1.getOutputStream())
+                senderPad.isTrackpadMode = true
+                senderPad.onGestureTriggered = { msg -> mainHandler.post { Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show() } }
+                this.touchSenderSecondary = senderPad
 
                 val decoder1 = VideoDecoder(
                     surface = surfaceView.holder.surface,

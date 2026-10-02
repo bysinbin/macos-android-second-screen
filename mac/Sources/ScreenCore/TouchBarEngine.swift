@@ -87,9 +87,9 @@ public final class TouchBarEngine: @unchecked Sendable {
     private var lastDeliveredTime = Date()
     private let lock = NSLock()
     
-    // Canvas dimensions (Proportional to 1640x720 mobile landscape, multiples of 16 for H.264)
+    // Canvas dimensions (Proportional to Touch Bar aspect ratio, multiples of 16 for H.264)
     public let canvasWidth: Int = 1600
-    public let canvasHeight: Int = 720
+    public let canvasHeight: Int = 224
     
     // UI Modes
     public enum ActiveMode {
@@ -120,10 +120,10 @@ public final class TouchBarEngine: @unchecked Sendable {
     }
     
     // Geometry Constants
-    private let barH: CGFloat = 190
-    private var barY: CGFloat { CGFloat(canvasHeight - Int(barH)) / 2.0 } // 265
-    private let btnH: CGFloat = 150
-    private var btnY: CGFloat { barY + (barH - btnH) / 2.0 }             // 285
+    private let barH: CGFloat = 200
+    private var barY: CGFloat { CGFloat(canvasHeight - Int(barH)) / 2.0 } // 12
+    private let btnH: CGFloat = 160
+    private var btnY: CGFloat { barY + (barH - btnH) / 2.0 }             // 32
     private let cornerR: CGFloat = 24
     
     private struct TouchBarButton {
@@ -965,7 +965,7 @@ public final class TouchBarEngine: @unchecked Sendable {
             let touchPoint = CGPoint(x: canvasX, y: canvasY)
             
             // Generous vertical hit-test tolerance for mobile touch (covers the whole bar vertically)
-            let isVerticallyInBar = (canvasY >= 60 && canvasY <= 660)
+            let isVerticallyInBar = (canvasY >= 0 && canvasY <= CGFloat(self.canvasHeight))
             
             if type == 1 {
                 // ACTION_DOWN
