@@ -119,7 +119,6 @@ public final class TouchInjector: @unchecked Sendable {
                 let src = CGEventSource(stateID: .hidSystemState)
                 if let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: curPos, mouseButton: .left) {
                     down.setIntegerValueField(.mouseEventClickState, value: 1)
-                    down.post(tap: .cgSessionEventTap)
                     down.post(tap: .cghidEventTap)
                 }
                 
@@ -130,11 +129,9 @@ public final class TouchInjector: @unchecked Sendable {
                 let src = CGEventSource(stateID: .hidSystemState)
                 if let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: curPos, mouseButton: .left) {
                     up.setIntegerValueField(.mouseEventClickState, value: 1)
-                    up.post(tap: .cgSessionEventTap)
                     up.post(tap: .cghidEventTap)
                 }
                 if let moveEvent = CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: curPos, mouseButton: .left) {
-                    moveEvent.post(tap: .cgSessionEventTap)
                     moveEvent.post(tap: .cghidEventTap)
                 }
                 
@@ -146,7 +143,6 @@ public final class TouchInjector: @unchecked Sendable {
                     self.isLeftMouseDown = true
                     if let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: curPos, mouseButton: .left) {
                         down.setIntegerValueField(.mouseEventClickState, value: 1)
-                        down.post(tap: .cgSessionEventTap)
                         down.post(tap: .cghidEventTap)
                     }
                 }
@@ -161,7 +157,6 @@ public final class TouchInjector: @unchecked Sendable {
                 CGWarpMouseCursorPosition(targetPoint)
                 if let dragEvent = CGEvent(mouseEventSource: src, mouseType: .leftMouseDragged, mouseCursorPosition: targetPoint, mouseButton: .left) {
                     dragEvent.setIntegerValueField(.mouseEventClickState, value: 1)
-                    dragEvent.post(tap: .cgSessionEventTap)
                     dragEvent.post(tap: .cghidEventTap)
                 }
                 
@@ -181,12 +176,10 @@ public final class TouchInjector: @unchecked Sendable {
                 if self.isLeftMouseDown {
                     if let dragEvent = CGEvent(mouseEventSource: src, mouseType: .leftMouseDragged, mouseCursorPosition: targetPoint, mouseButton: .left) {
                         dragEvent.setIntegerValueField(.mouseEventClickState, value: 1)
-                        dragEvent.post(tap: .cgSessionEventTap)
                         dragEvent.post(tap: .cghidEventTap)
                     }
                 } else {
                     if let moveEvent = CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: targetPoint, mouseButton: .left) {
-                        moveEvent.post(tap: .cgSessionEventTap)
                         moveEvent.post(tap: .cghidEventTap)
                     }
                 }
@@ -207,13 +200,11 @@ public final class TouchInjector: @unchecked Sendable {
                 let src = CGEventSource(stateID: .hidSystemState)
                 if let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: curPos, mouseButton: .left) {
                     down.setIntegerValueField(.mouseEventClickState, value: self.clickCount)
-                    down.post(tap: .cgSessionEventTap)
                     down.post(tap: .cghidEventTap)
                 }
                 usleep(25000)
                 if let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: curPos, mouseButton: .left) {
                     up.setIntegerValueField(.mouseEventClickState, value: self.clickCount)
-                    up.post(tap: .cgSessionEventTap)
                     up.post(tap: .cghidEventTap)
                 }
                 
@@ -223,13 +214,11 @@ public final class TouchInjector: @unchecked Sendable {
                 let src = CGEventSource(stateID: .hidSystemState)
                 if let rightDown = CGEvent(mouseEventSource: src, mouseType: .rightMouseDown, mouseCursorPosition: curPos, mouseButton: .right) {
                     rightDown.setIntegerValueField(.mouseEventClickState, value: 1)
-                    rightDown.post(tap: .cgSessionEventTap)
                     rightDown.post(tap: .cghidEventTap)
                 }
                 usleep(25000)
                 if let rightUp = CGEvent(mouseEventSource: src, mouseType: .rightMouseUp, mouseCursorPosition: curPos, mouseButton: .right) {
                     rightUp.setIntegerValueField(.mouseEventClickState, value: 1)
-                    rightUp.post(tap: .cgSessionEventTap)
                     rightUp.post(tap: .cghidEventTap)
                 }
                 
