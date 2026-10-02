@@ -45,14 +45,16 @@ final class AppViewModel: ObservableObject {
     @Published var touchBarStatusText = "Hazır"
     @Published var isTouchBarAvailable = true
     
-    @Published var isAccessibilityGranted: Bool = true
-    @Published var isScreenCaptureGranted: Bool = true
+    @Published var isAccessibilityGranted: Bool = false
+    @Published var isInputMonitoringGranted: Bool = false
+    @Published var isScreenCaptureGranted: Bool = false
     
     private var usbTimer: Timer?
     private var hasAppeared = false
     
     init() {
         checkAccessibility()
+        checkInputMonitoring()
         checkScreenCapture()
         
         // Initialize default screen 1
@@ -75,6 +77,7 @@ final class AppViewModel: ObservableObject {
         hasAppeared = true
         
         checkAccessibility()
+        checkInputMonitoring()
         checkScreenCapture()
         refreshUsbStatus()
         refreshIP()
@@ -84,6 +87,7 @@ final class AppViewModel: ObservableObject {
             Task { @MainActor in
                 self?.refreshUsbStatus()
                 self?.checkAccessibility()
+                self?.checkInputMonitoring()
                 self?.checkScreenCapture()
             }
         }
@@ -114,10 +118,19 @@ final class AppViewModel: ObservableObject {
     func requestAccessibilityPrompt() {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         isAccessibilityGranted = AXIsProcessTrustedWithOptions(options)
-        if !isAccessibilityGranted {
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                NSWorkspace.shared.open(url)
-            }
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    
+    func checkInputMonitoring() {
+        isInputMonitoringGranted = CGPreflightListenEventAccess()
+    }
+    
+    func requestInputMonitoringPrompt() {
+        _ = CGRequestListenEventAccess()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+            NSWorkspace.shared.open(url)
         }
     }
     
@@ -380,28 +393,99 @@ struct ContentView: View {
             Divider()
             
             // Permissions Alerts
-            if !model.isScreenCaptureGranted {
-                HStack(spacing: 8) {
-                    Image(systemName: "video.slash.fill")
-                        .foregroundStyle(.red)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Ekran Kaydı İzni Gerekli")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                        Text("Yayın için 'Ekran ve Sistem Sesi Kaydı' iznini açın.")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+            VStack(spacing: 8) {
+                if !model.isAccessibilityGranted {
+                    HStack(spacing: 8) {
+                        Image(systemName: "hand.point.up.left.and.text")
+                            .foregroundStyle(.red)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Erişilebilirlik İzni Gerekli")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                            Text("Fare tıklamaları ve dokunmatik kontrol için 'Erişilebilirlik' iznini açın.")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("İzni Aç") {
+                            model.requestAccessibilityPrompt()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .controlSize(.small)
                     }
-                    Spacer()
-                    Button("İzni Aç") {
-                        model.requestScreenCapturePrompt()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                    .controlSize(.small)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.12)))
                 }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.12)))
+                
+                if !model.isInputMonitoringGranted {
+                    HStack(spacing: 8) {
+                        Image(systemName: "keyboard.badge.waveform")
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Giriş İzleme (Input Monitoring) Gerekli")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                            Text("3 parmak jestleri ve klavye kısayolları için 'Giriş İzleme' iznini açın.")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("İzni Aç") {
+                            model.requestInputMonitoringPrompt()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                        .controlSize(.small)
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
+                }
+
+                if !model.isScreenCaptureGranted {
+                    HStack(spacing: 8) {
+                        Image(systemName: "video.slash.fill")
+                            .foregroundStyle(.red)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Ekran Kaydı İzni Gerekli")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                            Text("Yayın için 'Ekran ve Sistem Sesi Kaydı' iznini açın.")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("İzni Aç") {
+                            model.requestScreenCapturePrompt()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .controlSize(.small)
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.12)))
+                }
+                
+                if model.isAccessibilityGranted && model.isInputMonitoringGranted && model.isScreenCaptureGranted {
+                    HStack {
+                        Image(systemName: "checkmark.shield.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 12))
+                        Text("Tüm Sistem Yetkileri Aktif")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.green)
+                        Spacer()
+                        Menu("Yetkileri Yönet") {
+                            Button("Erişilebilirlik (Accessibility)") { model.requestAccessibilityPrompt() }
+                            Button("Giriş İzleme (Input Monitoring)") { model.requestInputMonitoringPrompt() }
+                            Button("Ekran Kaydı (Screen Recording)") { model.requestScreenCapturePrompt() }
+                        }
+                        .font(.caption2)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.green.opacity(0.08)))
+                }
             }
             
             // Scrollable Content
