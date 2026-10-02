@@ -10,7 +10,7 @@ struct MacScreenApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
-                .frame(width: 460, height: 600)
+                .frame(width: 520, height: 680)
                 .fixedSize()
                 .task {
                     model.onAppear()
@@ -21,14 +21,21 @@ struct MacScreenApp: App {
     }
 }
 
+// MARK: - Screen Item View Model
+
+public struct ScreenItemState: Identifiable {
+    public let id: UUID
+    public var name: String
+    public var port: UInt16
+    public var isRunning: Bool
+    public var resolution: String // "1080p", "720p", "2k"
+    public var isMirror: Bool
+    public var statusText: String
+}
+
 @MainActor
 final class AppViewModel: ObservableObject {
-    @Published var isRunning = false
-    @Published var isMirrorMode = false
-    @Published var selectedResolution = "1080p"
-    @Published var fps: Int = 60
-    @Published var bitrateMbps: Int = 10
-    @Published var statusText = "Hazır"
+    @Published var screens: [ScreenItemState] = []
     @Published var usbStatus = "Kontrol ediliyor..."
     @Published var isUsbConnected = false
     @Published var localIP = "127.0.0.1"
@@ -47,6 +54,20 @@ final class AppViewModel: ObservableObject {
     init() {
         checkAccessibility()
         checkScreenCapture()
+        
+        // Initialize default screen 1
+        let def = ScreenServerManager.shared.defaultServer
+        screens = [
+            ScreenItemState(
+                id: def.id,
+                name: def.name,
+                port: def.port,
+                isRunning: def.isRunning,
+                resolution: "1080p",
+                isMirror: false,
+                statusText: "Hazır"
+            )
+        ]
     }
     
     func onAppear() {
@@ -72,13 +93,15 @@ final class AppViewModel: ObservableObject {
         }
         
         if !isScreenCaptureGranted {
-            statusText = "⚠️ Ekran kaydı izni bekleniyor..."
             requestScreenCapturePrompt()
         } else {
-            startServer()
+            // Auto start first screen
+            if let first = screens.first, !first.isRunning {
+                startScreen(id: first.id)
+            }
         }
         
-        if isTouchBarAvailable {
+        if isTouchBarAvailable && !isTouchBarRunning {
             startTouchBar()
         }
     }
@@ -109,68 +132,102 @@ final class AppViewModel: ObservableObject {
         }
     }
     
-    func toggleServer() {
-        if isRunning {
-            stopServer()
-        } else {
-            startServer()
+    // MARK: - Multi-Display Management
+    
+    func addNewScreen() {
+        let instance = ScreenServerManager.shared.addServer()
+        let state = ScreenItemState(
+            id: instance.id,
+            name: instance.name,
+            port: instance.port,
+            isRunning: false,
+            resolution: "1080p",
+            isMirror: false,
+            statusText: "Hazır"
+        )
+        screens.append(state)
+        setupUsbReverse()
+    }
+    
+    func removeScreen(id: UUID) {
+        guard screens.count > 1 else { return }
+        Task {
+            await ScreenServerManager.shared.removeServer(id: id)
+            if let idx = screens.firstIndex(where: { $0.id == id }) {
+                screens.remove(at: idx)
+            }
+            setupUsbReverse()
         }
     }
     
-    func startServer() {
+    func toggleScreen(id: UUID) {
+        guard let item = screens.first(where: { $0.id == id }) else { return }
+        if item.isRunning {
+            stopScreen(id: id)
+        } else {
+            startScreen(id: id)
+        }
+    }
+    
+    func startScreen(id: UUID) {
         checkScreenCapture()
         guard isScreenCaptureGranted else {
-            statusText = "❌ Hata: Ekran Kaydı İzni Gerekli"
             requestScreenCapturePrompt()
             return
         }
         
+        guard let idx = screens.firstIndex(where: { $0.id == id }) else { return }
+        let item = screens[idx]
+        
+        guard let instance = ScreenServerManager.shared.servers.first(where: { $0.id == id }) else { return }
+        
+        screens[idx].statusText = "Başlatılıyor..."
+        
+        var width: UInt32 = 1920
+        var height: UInt32 = 1080
+        if item.resolution == "720p" {
+            width = 1640
+            height = 720
+        } else if item.resolution == "1080p" {
+            width = 1920
+            height = 1080
+        } else if item.resolution == "2k" {
+            width = 2160
+            height = 1080
+        }
+        
         Task {
             do {
-                statusText = "Başlatılıyor..."
-                await ScreenEngine.shared.stop()
-                
-                var width: UInt32 = 1920
-                var height: UInt32 = 1080
-                
-                if selectedResolution == "720p" {
-                    width = 1640
-                    height = 720
-                } else if selectedResolution == "1080p" {
-                    width = 1920
-                    height = 1080
-                } else if selectedResolution == "2k" {
-                    width = 2160
-                    height = 1080
-                }
-                
-                try await ScreenEngine.shared.start(
-                    isMirror: isMirrorMode,
+                try await instance.start(
+                    isMirror: item.isMirror,
                     width: width,
                     height: height,
-                    fps: UInt32(fps),
-                    bitrateMbps: Int32(bitrateMbps),
-                    port: ScreenProtocol.defaultPort
+                    fps: 60,
+                    bitrateMbps: 10
                 )
-                
-                isRunning = true
-                statusText = isMirrorMode ? "🪞 Yansıtma Yayında (Port 8888)" : "🖥️ 2. Ekran Yayında (Port 8888)"
+                screens[idx].isRunning = true
+                screens[idx].statusText = item.isMirror ? "🪞 Yansıtma (Port \(instance.port))" : "🖥️ Aktif (Port \(instance.port))"
                 setupUsbReverse()
             } catch {
-                statusText = "❌ Hata: \(error.localizedDescription)"
-                isRunning = false
+                screens[idx].statusText = "❌ \(error.localizedDescription)"
+                screens[idx].isRunning = false
             }
         }
     }
     
-    func stopServer() {
+    func stopScreen(id: UUID) {
+        guard let idx = screens.firstIndex(where: { $0.id == id }) else { return }
+        guard let instance = ScreenServerManager.shared.servers.first(where: { $0.id == id }) else { return }
+        
+        screens[idx].statusText = "Durduruluyor..."
         Task {
-            statusText = "Durduruluyor..."
-            await ScreenEngine.shared.stop()
-            isRunning = false
-            statusText = "Durduruldu"
+            await instance.stop()
+            screens[idx].isRunning = false
+            screens[idx].statusText = "Durduruldu"
         }
     }
+    
+    // MARK: - Touch Bar
     
     func toggleTouchBar() {
         if isTouchBarRunning {
@@ -198,17 +255,25 @@ final class AppViewModel: ObservableObject {
         touchBarStatusText = "Durduruldu"
     }
     
+    // MARK: - Port Forwarding & Networking
+    
     func setupUsbReverse() {
         let adbPath = "\(NSHomeDirectory())/Library/Android/sdk/platform-tools/adb"
-        let p1 = Process()
-        p1.executableURL = URL(fileURLWithPath: adbPath)
-        p1.arguments = ["reverse", "tcp:8888", "tcp:8888"]
-        try? p1.run()
+        guard FileManager.default.fileExists(atPath: adbPath) else { return }
         
-        let p2 = Process()
-        p2.executableURL = URL(fileURLWithPath: adbPath)
-        p2.arguments = ["reverse", "tcp:8889", "tcp:8889"]
-        try? p2.run()
+        // Reverse Touch Bar port
+        let ptb = Process()
+        ptb.executableURL = URL(fileURLWithPath: adbPath)
+        ptb.arguments = ["reverse", "tcp:8889", "tcp:8889"]
+        try? ptb.run()
+        
+        // Reverse all active screen ports
+        for s in ScreenServerManager.shared.servers {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: adbPath)
+            p.arguments = ["reverse", "tcp:\(s.port)", "tcp:\(s.port)"]
+            try? p.run()
+        }
     }
     
     func refreshUsbStatus() {
@@ -278,38 +343,43 @@ final class AppViewModel: ObservableObject {
     }
 }
 
+// MARK: - Main Content View
+
 struct ContentView: View {
     @ObservedObject var model: AppViewModel
     
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             // Header
             HStack {
                 Image(systemName: "display.2")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(LinearGradient(colors: [.blue, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
-                
+                    .font(.system(size: 26))
+                    .foregroundStyle(.blue)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Mac Screen")
-                        .font(.title2)
+                    Text("Mac Screen Studio")
+                        .font(.headline)
                         .fontWeight(.bold)
-                    
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(model.isRunning ? Color.green : Color.gray)
-                            .frame(width: 8, height: 8)
-                        Text(model.statusText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("Çoklu Sanal Ekran & Touch Bar Dağıtıcısı")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                
                 Spacer()
+                
+                Button(action: {
+                    model.addNewScreen()
+                }) {
+                    Label("Ekran Ekle", systemImage: "plus.circle.fill")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
-            .padding(.top, 10)
+            .padding(.top, 4)
             
             Divider()
             
+            // Permissions Alerts
             if !model.isScreenCaptureGranted {
                 HStack(spacing: 8) {
                     Image(systemName: "video.slash.fill")
@@ -318,7 +388,7 @@ struct ContentView: View {
                         Text("Ekran Kaydı İzni Gerekli")
                             .font(.caption)
                             .fontWeight(.bold)
-                        Text("Görüntü aktarımı için Sistem Ayarları'ndan 'Ekran ve Sistem Sesi Kaydı' iznini açın.")
+                        Text("Yayın için 'Ekran ve Sistem Sesi Kaydı' iznini açın.")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                     }
@@ -334,132 +404,150 @@ struct ContentView: View {
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.12)))
             }
             
-            if !model.isAccessibilityGranted {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text("Dokunmatik & Tıklama için izin gerekli.")
-                        .font(.caption)
-                    Spacer()
-                    Button("İzin Ver") {
-                        model.requestAccessibilityPrompt()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-                    .controlSize(.small)
-                }
-                .padding(8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.12)))
-            }
-            
-            // Mode Selection
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Ekran Modu")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
-                
-                Picker("", selection: $model.isMirrorMode) {
-                    Text("🖥️ Genişletilmiş 2. Ekran").tag(false)
-                    Text("🪞 Ekranı Yansıt (Mirror)").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .disabled(model.isRunning)
-            }
-            
-            // Resolution Selection
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Çözünürlük Kalitesi")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
-                
-                Picker("", selection: $model.selectedResolution) {
-                    Text("1080p Full HD (Önerilen)").tag("1080p")
-                    Text("720p Hızlı").tag("720p")
-                    Text("2K Retina").tag("2k")
-                }
-                .pickerStyle(.segmented)
-                .disabled(model.isRunning)
-            }
-            
-            // USB & Wi-Fi Card
-            VStack(spacing: 10) {
-                HStack {
-                    Image(systemName: model.isUsbConnected ? "cable.connector" : "cable.connector.slash")
-                        .foregroundStyle(model.isUsbConnected ? .green : .secondary)
-                    Text(model.usbStatus)
-                        .font(.subheadline)
-                    Spacer()
-                    Button("Port Bağla") {
-                        model.setupUsbReverse()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                
-                HStack {
-                    Image(systemName: "wifi")
-                        .foregroundStyle(.cyan)
-                    Text("Wi-Fi IP: \(model.localIP):8888")
-                        .font(.subheadline)
-                    Spacer()
-                }
-            }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
-            
-            // Touch Bar Card
-            if model.isTouchBarAvailable {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "hand.tap.fill")
-                            .foregroundStyle(.purple)
-                        Text("Apple Touch Bar Yayını")
-                            .font(.subheadline)
-                            .fontWeight(.bold)
-                        
-                        Circle()
-                            .fill(model.isTouchBarRunning ? Color.green : Color.gray)
-                            .frame(width: 8, height: 8)
-                        
-                        Spacer()
-                        
-                        Button(model.isTouchBarRunning ? "Durdur" : "Başlat") {
-                            model.toggleTouchBar()
+            // Scrollable Content
+            ScrollView {
+                VStack(spacing: 14) {
+                    // Touch Bar Standalone Card
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "hand.tap.fill")
+                                .foregroundStyle(.purple)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Apple Touch Bar Yayını")
+                                    .font(.subheadline)
+                                    .fontWeight(.bold)
+                                Text("Port: 8889  ·  \(model.touchBarStatusText)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Circle()
+                                .fill(model.isTouchBarRunning ? Color.green : Color.gray)
+                                .frame(width: 8, height: 8)
+                            
+                            Button(model.isTouchBarRunning ? "Durdur" : "Başlat") {
+                                model.toggleTouchBar()
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(model.isTouchBarRunning ? .red : .purple)
+                            .controlSize(.small)
                         }
-                        .buttonStyle(.bordered)
-                        .tint(model.isTouchBarRunning ? .red : .purple)
-                        .controlSize(.small)
+                    }
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.purple.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.purple.opacity(0.2), lineWidth: 1))
+                    
+                    // Displays List
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Sanal Ekranlar (\(model.screens.count))")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        
+                        ForEach($model.screens) { $item in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Image(systemName: item.isRunning ? "tv.fill" : "tv")
+                                        .foregroundStyle(item.isRunning ? .blue : .secondary)
+                                    Text(item.name)
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                    
+                                    Text("(Port \(item.port))")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    
+                                    Spacer()
+                                    
+                                    Circle()
+                                        .fill(item.isRunning ? Color.green : Color.gray)
+                                        .frame(width: 8, height: 8)
+                                    
+                                    Button(item.isRunning ? "Durdur" : "Başlat") {
+                                        model.toggleScreen(id: item.id)
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(item.isRunning ? .red : .blue)
+                                    .controlSize(.small)
+                                    
+                                    if model.screens.count > 1 {
+                                        Button(action: {
+                                            model.removeScreen(id: item.id)
+                                        }) {
+                                            Image(systemName: "trash")
+                                                .foregroundStyle(.red)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .disabled(item.isRunning)
+                                    }
+                                }
+                                
+                                HStack(spacing: 8) {
+                                    Picker("", selection: $item.resolution) {
+                                        Text("1080p").tag("1080p")
+                                        Text("720p").tag("720p")
+                                        Text("2K").tag("2k")
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .controlSize(.small)
+                                    .disabled(item.isRunning)
+                                    
+                                    Picker("", selection: $item.isMirror) {
+                                        Text("Genişlet").tag(false)
+                                        Text("Yansıt").tag(true)
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .controlSize(.small)
+                                    .disabled(item.isRunning)
+                                }
+                                
+                                Text(item.statusText)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(12)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.04)))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                        }
                     }
                     
-                    Text("Telefonunuzu MacBook Touch Bar'ı olarak kullanın (Port 8889). Safari sekmeleri, medya denetimleri, emoji, ses, parlaklık ve Esc tuşu canlı aktarılır.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                    // Network & USB Card
+                    VStack(spacing: 8) {
+                        HStack {
+                            Image(systemName: model.isUsbConnected ? "cable.connector" : "cable.connector.slash")
+                                .foregroundStyle(model.isUsbConnected ? .green : .secondary)
+                            Text(model.usbStatus)
+                                .font(.caption)
+                            Spacer()
+                            Button("Portları Bağla") {
+                                model.setupUsbReverse()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                        }
+                        
+                        HStack {
+                            Image(systemName: "wifi")
+                                .foregroundStyle(.cyan)
+                            Text("Wi-Fi IP: \(model.localIP)")
+                                .font(.caption)
+                            Spacer()
+                            Text("Touch Bar: 8889  ·  Ekranlar: \(model.screens.map { String($0.port) }.joined(separator: ", "))")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.03)))
                 }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color.purple.opacity(0.08)))
             }
-            
-            Spacer()
-            
-            // Big Action Button
-            Button(action: {
-                model.toggleServer()
-            }) {
-                HStack(spacing: 8) {
-                    Image(systemName: model.isRunning ? "stop.fill" : "play.fill")
-                    Text(model.isRunning ? "YAYINI DURDUR" : "YAYINI BAŞLAT")
-                        .fontWeight(.bold)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 38)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(model.isRunning ? .red : .blue)
-            .controlSize(.large)
         }
-        .padding(24)
+        .padding(20)
         .background(Color(NSColor.windowBackgroundColor))
     }
 }

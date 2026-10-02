@@ -32,17 +32,16 @@
 - (BOOL)applySettings:(CGVirtualDisplaySettings *)settings;
 @end
 
-static CGVirtualDisplay *sActiveDisplay = nil;
+static NSMutableDictionary<NSNumber *, CGVirtualDisplay *> *sActiveDisplays = nil;
 static CGDirectDisplayID sActiveDisplayID = 0;
 static dispatch_queue_t sVirtualDisplayQueue = nil;
 
 CGDirectDisplayID VDBridgeCreateDisplay(NSString *name, uint32_t width, uint32_t height, double refreshRate, BOOL hiDPI) {
-    if (sActiveDisplay != nil) {
-        VDBridgeDestroyDisplay();
-    }
-
     if (!sVirtualDisplayQueue) {
         sVirtualDisplayQueue = dispatch_queue_create("com.antigravity.virtualdisplay", DISPATCH_QUEUE_SERIAL);
+    }
+    if (!sActiveDisplays) {
+        sActiveDisplays = [[NSMutableDictionary alloc] init];
     }
 
     Class descClass = NSClassFromString(@"CGVirtualDisplayDescriptor");
@@ -56,11 +55,11 @@ CGDirectDisplayID VDBridgeCreateDisplay(NSString *name, uint32_t width, uint32_t
     }
 
     CGVirtualDisplayDescriptor *desc = [[descClass alloc] init];
-    desc.name = name ?: @"Android Virtual Display";
+    desc.name = name ?: [NSString stringWithFormat:@"Android Display %lu", (unsigned long)(sActiveDisplays.count + 1)];
     desc.maxPixelsWide = 3840;
     desc.maxPixelsHigh = 3840;
     desc.sizeInMillimeters = CGSizeMake(160, 90);
-    desc.serialNum = 0x414E4452; // "ANDR"
+    desc.serialNum = (unsigned int)(0x414E4400 + sActiveDisplays.count); // "AND0", "AND1"...
     desc.productID = 0x5343524E; // "SCRN"
     desc.vendorID = 0x05AC;     // Apple / Generic
     desc.queue = sVirtualDisplayQueue;
@@ -84,28 +83,46 @@ CGDirectDisplayID VDBridgeCreateDisplay(NSString *name, uint32_t width, uint32_t
     // Wait 300ms for CoreGraphics and WindowServer to register the display mode
     usleep(300000);
 
-    // Explicitly configure as EXTENDED DESKTOP (disable mirror, position to right of primary display)
+    // Position this new display to the right of the existing right-most display
     CGDisplayConfigRef configRef;
     if (CGBeginDisplayConfiguration(&configRef) == kCGErrorSuccess) {
         CGConfigureDisplayMirrorOfDisplay(configRef, display.displayID, kCGNullDirectDisplay);
-        CGRect mainBounds = CGDisplayBounds(CGMainDisplayID());
-        int32_t targetX = (int32_t)(mainBounds.origin.x + mainBounds.size.width);
-        int32_t targetY = (int32_t)(mainBounds.origin.y);
+        
+        // Find max X among all active displays
+        uint32_t maxDisplays = 16;
+        CGDirectDisplayID activeIDs[16];
+        uint32_t displayCount = 0;
+        CGGetActiveDisplayList(maxDisplays, activeIDs, &displayCount);
+        
+        CGFloat maxX = 0;
+        for (uint32_t i = 0; i < displayCount; i++) {
+            if (activeIDs[i] == display.displayID) continue;
+            CGRect b = CGDisplayBounds(activeIDs[i]);
+            if (CGRectGetMaxX(b) > maxX) {
+                maxX = CGRectGetMaxX(b);
+            }
+        }
+        
+        int32_t targetX = (int32_t)maxX;
+        int32_t targetY = 0;
         CGConfigureDisplayOrigin(configRef, display.displayID, targetX, targetY);
         CGCompleteDisplayConfiguration(configRef, kCGConfigurePermanently);
         NSLog(@"[VDBridge] Configured display ID %u as Extended Desktop at (%d, %d)", display.displayID, targetX, targetY);
     }
 
-    sActiveDisplay = display;
+    sActiveDisplays[@(display.displayID)] = display;
     sActiveDisplayID = display.displayID;
-    NSLog(@"[VDBridge] Created virtual display ID %u (%ux%u @ %.1fHz)", sActiveDisplayID, width, height, refreshRate);
+    NSLog(@"[VDBridge] Created virtual display ID %u (%ux%u @ %.1fHz). Total active: %lu", sActiveDisplayID, width, height, refreshRate, (unsigned long)sActiveDisplays.count);
     return sActiveDisplayID;
 }
 
 BOOL VDBridgeUpdateDisplayMode(uint32_t width, uint32_t height, double refreshRate, BOOL hiDPI) {
-    if (!sActiveDisplay) {
+    if (!sActiveDisplays || sActiveDisplays.count == 0) {
         return NO;
     }
+    CGVirtualDisplay *display = sActiveDisplays[@(sActiveDisplayID)] ?: sActiveDisplays.allValues.firstObject;
+    if (!display) return NO;
+
     Class modeClass = NSClassFromString(@"CGVirtualDisplayMode");
     Class settingsClass = NSClassFromString(@"CGVirtualDisplaySettings");
     if (!modeClass || !settingsClass) return NO;
@@ -115,14 +132,34 @@ BOOL VDBridgeUpdateDisplayMode(uint32_t width, uint32_t height, double refreshRa
     settings.modes = @[mode];
     settings.hiDPI = hiDPI ? 1 : 0;
 
-    return [sActiveDisplay applySettings:settings];
+    return [display applySettings:settings];
+}
+
+void VDBridgeDestroyDisplayByID(CGDirectDisplayID displayID) {
+    if (sActiveDisplays && sActiveDisplays[@(displayID)]) {
+        NSLog(@"[VDBridge] Destroying virtual display ID %u", displayID);
+        [sActiveDisplays removeObjectForKey:@(displayID)];
+        if (sActiveDisplayID == displayID) {
+            sActiveDisplayID = sActiveDisplays.allKeys.lastObject.unsignedIntValue;
+        }
+    }
+}
+
+void VDBridgeDestroyAllDisplays(void) {
+    if (sActiveDisplays) {
+        NSLog(@"[VDBridge] Destroying all %lu virtual displays", (unsigned long)sActiveDisplays.count);
+        [sActiveDisplays removeAllObjects];
+        sActiveDisplayID = 0;
+    }
 }
 
 void VDBridgeDestroyDisplay(void) {
-    if (sActiveDisplay) {
-        NSLog(@"[VDBridge] Destroying virtual display ID %u", sActiveDisplayID);
-        sActiveDisplay = nil;
-        sActiveDisplayID = 0;
+    if (sActiveDisplays && sActiveDisplays.count > 0) {
+        if (sActiveDisplayID != 0) {
+            VDBridgeDestroyDisplayByID(sActiveDisplayID);
+        } else {
+            VDBridgeDestroyAllDisplays();
+        }
     }
 }
 
@@ -312,5 +349,43 @@ void VDBridgePostVirtualKey(uint16_t keyCode, BOOL isDown) {
     if (ev) CFRelease(ev);
     if (src) CFRelease(src);
 }
+
+// MARK: - Display Brightness
+
+static int (*sDisplayServicesGetBrightness)(uint32_t, float *) = NULL;
+static int (*sDisplayServicesSetBrightness)(uint32_t, float) = NULL;
+static dispatch_once_t sInitDisplayServicesToken;
+
+static void sInitDisplayServices(void) {
+    dispatch_once(&sInitDisplayServicesToken, ^{
+        void *handle = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY);
+        if (handle) {
+            sDisplayServicesGetBrightness = dlsym(handle, "DisplayServicesGetBrightness");
+            sDisplayServicesSetBrightness = dlsym(handle, "DisplayServicesSetBrightness");
+        }
+    });
+}
+
+float VDBridgeGetBrightness(void) {
+    sInitDisplayServices();
+    if (sDisplayServicesGetBrightness) {
+        float b = 0.5f;
+        CGDirectDisplayID mainDisplay = CGMainDisplayID();
+        if (sDisplayServicesGetBrightness(mainDisplay, &b) == 0) {
+            return b;
+        }
+    }
+    return 0.5f;
+}
+
+void VDBridgeSetBrightness(float brightness) {
+    sInitDisplayServices();
+    if (sDisplayServicesSetBrightness) {
+        CGDirectDisplayID mainDisplay = CGMainDisplayID();
+        float clamped = fmaxf(0.0f, fminf(1.0f, brightness));
+        sDisplayServicesSetBrightness(mainDisplay, clamped);
+    }
+}
+
 
 

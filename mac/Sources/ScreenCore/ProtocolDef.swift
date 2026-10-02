@@ -21,5 +21,6 @@ public struct ScreenProtocol {
         case mouseRelativeDrag = 0x0A // Trackpad drag/select: dx, dy with left button down
         case mouseDown         = 0x0B // Trackpad left button down (press)
         case mouseUp           = 0x0C // Trackpad left button up (release)
+        case gestureAction     = 0x0D // 3-finger gestures: normX = dirX, normY = dirY
     }
 }

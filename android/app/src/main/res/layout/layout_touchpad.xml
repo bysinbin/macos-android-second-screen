@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:focusable="true"
+    android:background="#0C0D12">
+
+
+
+    <!-- Trackpad Center Guide -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:gravity="center"
+        android:clickable="false"
+        android:focusable="false"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🖱️ Dokunmatik Touchpad"
+            android:textColor="#55607A"
+            android:textSize="18sp"
+            android:clickable="false"
+            android:focusable="false"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="1 Parmak: Tık  ·  2 Parmak: Sağ Tık &amp; Kaydır  ·  3 veya 4 Parmak: Kaydır &amp; Mission Control"
+            android:textColor="#3D4559"
+            android:clickable="false"
+            android:focusable="false"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Bottom Physical Click Buttons -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_alignParentBottom="true"
+        android:orientation="horizontal"
+        android:padding="8dp">
+
+        <Button
+            android:id="@+id/btn_trackpad_left"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/card_bg"
+            android:text="Sol Tık"
+            android:textColor="#A0B0D0"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btn_trackpad_right"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:background="@drawable/card_bg"
+            android:text="Sağ Tık"
+            android:textColor="#A0B0D0"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+</RelativeLayout>
